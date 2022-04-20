@@ -1,0 +1,34 @@
+version: '3'
+services:
+  api:
+    container_name: api
+    build: ./docker/node
+    tty: true
+    ports:
+      - "3000:3000"
+    volumes:
+      - type: bind
+        source: ./api
+        target: /api
+    depends_on:
+      - db
+
+  db:
+    container_name: db
+    build: ./docker/db
+    volumes:
+      - type: bind
+        source: ./docker/db/data
+        target: /var/lib/mysql
+      - type: bind
+        source: ./docker/db/logs
+        target: /var/log/mysql
+    ports:
+      - "3306:3306"
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      TZ: 'Asia/Tokyo'
+      MYSQL_DATABASE: 'study'
+      MYSQL_ROOT_PASSWORD: 'root'
+      MYSQL_USER: 'user'
+      MYSQL_PASSWORD: 'password'
