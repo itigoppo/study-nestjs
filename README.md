@@ -182,3 +182,15 @@ todoテーブル確認ヨシ！
 
 ※マイグレーションの実行管理テーブルmigrationsテーブルもできます
 
+# step3: コードのフォーマットを自動でする
+
+プロジェクトをつくったときにPrettierの実行コマンドがformatで登録されているのでそれを叩きます
+
+```shell
+docker-compose exec api sh
+npm run format
+```
+
+諸々正された、、、ヨシ！
+
+

@@ -30,4 +30,3 @@ export class Todo {
   })
   updatedAt: string | null = null;
 }
-
