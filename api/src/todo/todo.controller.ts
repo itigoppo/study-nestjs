@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpException,
   HttpStatus,
@@ -61,5 +62,21 @@ export class TodoController {
       bodies.title,
       bodies.description,
     );
+  }
+
+  @Delete(':id')
+  async delete(@Param() params: { id: string }) {
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return await this.service.delete(Number(params.id));
   }
 }

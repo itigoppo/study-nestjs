@@ -44,4 +44,10 @@ export class TodoService {
       },
     );
   }
+
+  delete(id: number) {
+    return this.todoRepository.delete({
+      id: id,
+    });
+  }
 }

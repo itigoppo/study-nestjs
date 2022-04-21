@@ -668,3 +668,101 @@ titleが変更されてupdatedAtも更新されてるのが確認できたらヨ
   "description": "後で書く"
 }
 ```
+
+# step12: CURDのD!!!
+
+- 削除メソッドを実装する
+
+/api/src/todo/todo.service.tsに削除するメソッドを作る
+
+TypeORMのdelete()を呼ぶ
+
+```ts
+export class TodoService {
+  // ...省略
+  delete(id: number) {
+    return this.todoRepository.delete({
+      id: id,
+    });
+  }
+}
+```
+
+- アクションを実装する
+
+/api/src/todo/todo.controller.tsにアクションを実装する
+
+```ts
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common'; // Deleteを追加
+
+export class TodoController {
+  // ...省略
+  @Delete(':id')
+  async delete(@Param() params: { id: string }) {
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return await this.service.delete(Number(params.id));
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+ターミナルでDELETEアクセス
+
+```shell
+curl http://localhost:3000/todo/2 -X DELETE
+
+# {"raw":[],"affected":1}%
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+[
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-04-21T09:32:41.000Z",
+    "id": 1,
+    "title": "1つ目のTODO",
+    "description": "後で書く"
+  },
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:11:50.000Z",
+    "updatedAt": "2022-04-21T08:11:50.000Z",
+    "id": 3,
+    "title": "3つ目のTODO",
+    "description": "後で書く"
+  }
+]
+```
