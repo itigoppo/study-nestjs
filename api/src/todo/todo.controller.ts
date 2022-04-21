@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+} from '@nestjs/common';
 import { TodoService } from './todo.service';
 
 @Controller('todo')
@@ -17,6 +25,17 @@ export class TodoController {
 
   @Get(':id')
   async findOne(@Param() params: { id: string }) {
-    return await this.service.findOne(Number(params.id));
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return todo;
   }
 }

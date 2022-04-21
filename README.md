@@ -520,3 +520,51 @@ http://localhost:3000/todo/1 にブラウザでアクセス
   "description": "後で書く"
 }
 ```
+
+# step10: 存在しないidにアクセスされたらエラーにする
+
+http://localhost:3000/todo/100 (存在しないid)にブラウザでアクセスすると空データが返ってくるのでこれをエラーにしたい
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+```ts
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Post,
+} from '@nestjs/common'; // HttpException, HttpStatusを追加
+export class TodoController {
+  // ...省略
+  @Get(':id')
+  async findOne(@Param() params: { id: string }) {
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return todo;
+  }
+}
+```
+
+http://localhost:3000/todo/100 にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "status": 404,
+  "error": "Missing item(id: 100)."
+}
+```
+
