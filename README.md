@@ -306,3 +306,86 @@ dayjs.locale('ja');
 
 export default dayjs;
 ```
+
+# step7: CURDのC!!!
+
+- インサートメソッドを実装する
+
+/api/src/todo/todo.service.tsにインサートするメソッドを作る
+
+タイトルと本文を引数として受け取ってタイムスタンプをいれてTypeORMのinsert()を呼ぶだけ
+
+```ts
+import Dayjs from '../util/dayjs';
+
+export class TodoService {
+  // ...省略
+  create(title: string, description: string) {
+    const now = Dayjs();
+    const todo = new Todo();
+    todo.title = title;
+    todo.description = description;
+    todo.createdAt = now.tz().format();
+    todo.updatedAt = now.tz().format();
+
+    return this.todoRepository.insert(todo);
+  }
+}
+```
+
+- アクションを実装する
+
+/api/src/todo/todo.controller.tsにアクションを実装する
+
+```ts
+import { Body, Controller, Post } from '@nestjs/common';
+import { TodoService } from './todo.service';
+
+@Controller('todo')
+export class TodoController {
+  constructor(private readonly service: TodoService) {}
+
+  @Post()
+  async create(@Body() bodies: { title: string; description: string }) {
+    return await this.service.create(bodies.title, bodies.description);
+  }
+}
+
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/todo -X POST -d "title=最初のTODO&description=後で書く"
+
+{"identifiers":[{"id":1}],"generatedMaps":[{"id":1,"completedAt":null,"createdAt":"2022-04-21T08:07:58.000Z","updatedAt":"2022-04-21T08:07:58.000Z"}],"raw":{"fieldCount":0,"affectedRows":1,"insertId":1,"info":"","serverStatus":2,"warningStatus":0}}%
+```
+
+- データを確認
+
+dbコンテナにはいってmysqlにログイン
+
+```mysql
+SELECT * FROM todo;
+
+# +----+----------------+--------------+--------------+---------------------+---------------------+
+# | id | title          | description  | completed_at | created_at          | updated_at          |
+# +----+----------------+--------------+--------------+---------------------+---------------------+
+# |  1 | 最初のTODO     | 後で書く     | NULL         | 2022-04-21 17:07:58 | 2022-04-21 17:07:58 |
+# |  2 | 2つ目のTODO    | 後で書く     | NULL         | 2022-04-21 17:11:41 | 2022-04-21 17:11:41 |
+# |  3 | 3つ目のTODO    | 後で書く     | NULL         | 2022-04-21 17:11:50 | 2022-04-21 17:11:50 |
+# +----+----------------+--------------+--------------+---------------------+---------------------+
+# 3 rows in set (0.00 sec)
+```
+
+データ入ってるね！ヨシ！
+
