@@ -766,3 +766,133 @@ http://localhost:3000/todo にブラウザでアクセス
   }
 ]
 ```
+
+# step13: 編集用バリデーションをつける
+
+- 必要なパッケージをインストール
+
+```shell
+docker-compose exec api sh
+npm install --save class-transformer class-validator
+```
+
+- DTOでバリデーション設定
+
+/api/src/todo/todo.dto.tsを以下で作成する
+
+```ts
+import { IsOptional, IsString, Length } from 'class-validator';
+
+export class UpdateTodoDto {
+  // 指定がなくてもOK
+  @IsOptional()
+  // string型指定
+  @IsString()
+  // 20文字以内
+  @Length(1, 20, { message: '$constraint2文字以下で入力してください' })
+  title: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  // string型指定
+  @IsString()
+  // 500文字以内
+  @Length(1, 500, { message: '$constraint2文字以下で入力してください' })
+  description: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  updatedAt: string;
+}
+```
+
+- DTOによるバリデーションを有効にする
+
+/api/src/main.tsを以下で編集する
+
+```ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common'; // 追加
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe()); // 追加
+  await app.listen(3000);
+}
+bootstrap();
+
+```
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+```ts
+import { UpdateTodoDto } from './todo.dto';
+export class TodoController {
+  // ...省略
+  @Patch(':id')
+  async update(@Param() params: { id: string }, @Body() bodies: UpdateTodoDto) {
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return await this.service.update(Number(params.id), bodies);
+  }
+}
+```
+
+/api/src/todo/todo.service.tsの更新するメソッドを編集する
+
+```ts
+import { UpdateTodoDto } from './todo.dto';
+export class TodoService {
+  // ...省略
+  update(id: number, todo: UpdateTodoDto) {
+    todo.updatedAt = Dayjs().tz().format();
+
+    return this.todoRepository.update(
+      {
+        id: id,
+      },
+      todo,
+    );
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+ターミナルでPATCHアクセス
+
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=123456789012345678901"
+
+```
+
+※descriptionの指定はなくてもいいので飛ばしてtitleを文字数オーバーで飛ばします
+
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "20文字以下で入力してください"
+  ],
+  "error": "Bad Request"
+}
+```
+
+怒られた！ヨシ！

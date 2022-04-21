@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Todo } from '../entities/todo.entity';
 import { Repository } from 'typeorm';
 import Dayjs from '../util/dayjs';
+import { UpdateTodoDto } from './todo.dto';
 
 @Injectable()
 export class TodoService {
@@ -32,16 +33,14 @@ export class TodoService {
     });
   }
 
-  update(id: number, title: string, description: string) {
+  update(id: number, todo: UpdateTodoDto) {
+    todo.updatedAt = Dayjs().tz().format();
+
     return this.todoRepository.update(
       {
         id: id,
       },
-      {
-        title: title,
-        description: description,
-        updatedAt: Dayjs().tz().format(),
-      },
+      todo,
     );
   }
 

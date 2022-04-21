@@ -10,6 +10,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { TodoService } from './todo.service';
+import { UpdateTodoDto } from './todo.dto';
 
 @Controller('todo')
 export class TodoController {
@@ -42,10 +43,7 @@ export class TodoController {
   }
 
   @Patch(':id')
-  async update(
-    @Param() params: { id: string },
-    @Body() bodies: { title: string; description: string },
-  ) {
+  async update(@Param() params: { id: string }, @Body() bodies: UpdateTodoDto) {
     const todo = await this.service.findOne(Number(params.id));
     if (!todo) {
       throw new HttpException(
@@ -57,11 +55,7 @@ export class TodoController {
       );
     }
 
-    return await this.service.update(
-      Number(params.id),
-      bodies.title,
-      bodies.description,
-    );
+    return await this.service.update(Number(params.id), bodies);
   }
 
   @Delete(':id')
