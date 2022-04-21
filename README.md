@@ -276,3 +276,33 @@ export class TodoService {
 }
 ```
 
+# step6: CURDのC!…の前に日付操作周りの調整
+
+- Day.jsを導入する
+
+```shell
+docker-compose exec api sh
+npm install --save dayjs
+```
+
+- 日本時間を共通設定にする
+
+/api/src/util/dayjs.tsを以下で作成する
+
+```ts
+import * as dayjs from 'dayjs';
+
+import * as utc from 'dayjs/plugin/utc';
+import * as timezone from 'dayjs/plugin/timezone';
+
+// 日本時間に変換する
+import 'dayjs/locale/ja';
+
+// プラグイン拡張
+dayjs.extend(utc);
+dayjs.extend(timezone);
+dayjs.tz.setDefault('Asia/Tokyo');
+dayjs.locale('ja');
+
+export default dayjs;
+```
