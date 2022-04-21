@@ -568,3 +568,103 @@ http://localhost:3000/todo/100 にブラウザでアクセス
 }
 ```
 
+# step11: CURDのU!!!
+
+- 更新メソッドを実装する
+
+/api/src/todo/todo.service.tsに更新するメソッドを作る
+
+TypeORMのupdate()を呼ぶ
+
+```ts
+export class TodoService {
+  // ...省略
+  update(id: number, title: string, description: string) {
+    return this.todoRepository.update(
+      {
+        id: id,
+      },
+      {
+        title: title,
+        description: description,
+        updatedAt: Dayjs().tz().format(),
+      },
+    );
+  }
+}
+```
+
+- アクションを実装する
+
+/api/src/todo/todo.controller.tsにアクションを実装する
+
+```ts
+import {
+  Body,
+  Controller,
+  Get,
+  HttpException,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+} from '@nestjs/common'; // Patchを追加
+
+export class TodoController {
+  // ...省略
+  @Patch(':id')
+  async update(
+    @Param() params: { id: string },
+    @Body() bodies: { title: string; description: string },
+  ) {
+    const todo = await this.service.findOne(Number(params.id));
+    if (!todo) {
+      throw new HttpException(
+        {
+          status: HttpStatus.NOT_FOUND,
+          error: 'Missing item(id: ' + params.id + ').',
+        },
+        404,
+      );
+    }
+
+    return await this.service.update(
+      Number(params.id),
+      bodies.title,
+      bodies.description,
+    );
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+ターミナルでPATCHアクセス
+
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=1つ目のTODO&description=後で書く"
+
+# {"generatedMaps":[],"raw":[],"affected":1}%
+```
+
+http://localhost:3000/todo/1 にブラウザでアクセス
+
+titleが変更されてupdatedAtも更新されてるのが確認できたらヨシ！
+
+```json
+{
+  "completedAt": null,
+  "createdAt": "2022-04-21T08:07:58.000Z",
+  "updatedAt": "2022-04-21T09:32:41.000Z",
+  "id": 1,
+  "title": "1つ目のTODO",
+  "description": "後で書く"
+}
+```

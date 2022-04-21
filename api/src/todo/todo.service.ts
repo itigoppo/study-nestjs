@@ -31,4 +31,17 @@ export class TodoService {
       id: id,
     });
   }
+
+  update(id: number, title: string, description: string) {
+    return this.todoRepository.update(
+      {
+        id: id,
+      },
+      {
+        title: title,
+        description: description,
+        updatedAt: Dayjs().tz().format(),
+      },
+    );
+  }
 }
