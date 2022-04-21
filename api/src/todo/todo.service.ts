@@ -25,4 +25,10 @@ export class TodoService {
   findAll() {
     return this.todoRepository.find();
   }
+
+  findOne(id: number) {
+    return this.todoRepository.findOne({
+      id: id,
+    });
+  }
 }

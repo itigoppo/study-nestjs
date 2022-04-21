@@ -463,3 +463,60 @@ http://localhost:3000/todo にブラウザでアクセス
 ]
 ```
 
+# step9: 1件だけ取得する
+
+- 1件取得するメソッドを実装する
+
+/api/src/todo/todo.service.tsに1件取得するメソッドを作る
+
+1件なのでTypeORMのfind()ではなくfindOne()を呼ぶ
+
+```ts
+export class TodoService {
+  // ...省略
+  findOne(id: number) {
+    return this.todoRepository.findOne({
+      id: id,
+    });
+  }
+}
+```
+
+- アクションを実装する
+
+/api/src/todo/todo.controller.tsにアクションを実装する
+
+```ts
+import { Body, Controller, Get, Param, Post } from '@nestjs/common'; // Paramを追加
+export class TodoController {
+  // ...省略
+  @Get(':id')
+  async findOne(@Param() params: { id: string }) {
+    return await this.service.findOne(Number(params.id));
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+http://localhost:3000/todo/1 にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "completedAt": null,
+  "createdAt": "2022-04-21T08:07:58.000Z",
+  "updatedAt": "2022-04-21T08:07:58.000Z",
+  "id": 1,
+  "title": "最初のTODO",
+  "description": "後で書く"
+}
+```
