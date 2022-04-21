@@ -10,3 +10,7 @@ RUN apk add --update --no-cache tzdata && \
     echo "Asia/Tokyo" > /etc/timezone && \
     apk del tzdata
 
+# install vim
+RUN apk update
+RUN apk add vim
+COPY .vimrc /root/.vimrc
