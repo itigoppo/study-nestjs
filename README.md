@@ -389,3 +389,77 @@ SELECT * FROM todo;
 
 データ入ってるね！ヨシ！
 
+# step8: CURDのR!!!
+
+- 全件取得するメソッドを実装する
+
+
+/api/src/todo/todo.service.tsに全件取得するメソッドを作る
+
+TypeORMのfind()を呼ぶだけ
+
+```ts
+export class TodoService {
+  // ...省略
+  findAll() {
+    return this.todoRepository.find();
+  }
+}
+```
+- アクションを実装する
+
+/api/src/todo/todo.controller.tsにアクションを実装する
+
+```ts
+import { Body, Controller, Get, Post } from '@nestjs/common'; // Getを追加
+export class TodoController {
+  // ...省略
+  @Get()
+  async findAll() {
+    return await this.service.findAll();
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+[
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-04-21T08:07:58.000Z",
+    "id": 1,
+    "title": "最初のTODO",
+    "description": "後で書く"
+  },
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:11:41.000Z",
+    "updatedAt": "2022-04-21T08:11:41.000Z",
+    "id": 2,
+    "title": "2つ目のTODO",
+    "description": "後で書く"
+  },
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:11:50.000Z",
+    "updatedAt": "2022-04-21T08:11:50.000Z",
+    "id": 3,
+    "title": "3つ目のTODO",
+    "description": "後で書く"
+  }
+]
+```
+

@@ -21,4 +21,8 @@ export class TodoService {
 
     return this.todoRepository.insert(todo);
   }
+
+  findAll() {
+    return this.todoRepository.find();
+  }
 }
