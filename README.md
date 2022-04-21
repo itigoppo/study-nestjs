@@ -217,3 +217,62 @@ npm run lint
 
 /api/src/main.ts戻しておきます
 
+# step5: CRUDする準備
+
+- モジュール、コントローラ、サービスのひな形作成
+
+```shell
+docker-compose exec api sh
+npx nest g mo todo
+# CREATE src/todo/todo.module.ts (81 bytes)
+# UPDATE src/app.module.ts (382 bytes)
+
+npx nest g co todo
+# CREATE src/todo/todo.controller.spec.ts (478 bytes)
+# CREATE src/todo/todo.controller.ts (97 bytes)
+# UPDATE src/todo/todo.module.ts (166 bytes)
+
+npx nest g s todo
+# CREATE src/todo/todo.service.spec.ts (446 bytes)
+# CREATE src/todo/todo.service.ts (88 bytes)
+# UPDATE src/todo/todo.module.ts (240 bytes)
+```
+
+- リポジトリの実装と登録
+
+/api/src/todo/todo.module.tsを以下で編集する
+
+```ts
+import { Module } from '@nestjs/common';
+import { TodoController } from './todo.controller';
+import { TodoService } from './todo.service';
+import { TypeOrmModule } from '@nestjs/typeorm'; // 追加
+import { Todo } from '../entities/todo.entity'; // 追加
+
+@Module({
+  imports: [TypeOrmModule.forFeature([Todo])], // 追加
+  controllers: [TodoController],
+  providers: [TodoService],
+})
+export class TodoModule {}
+```
+
+/api/src/todo/todo.service.tsを以下で編集する
+
+雛形だといないのでまるっとコンストラクタを実装する形
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Todo } from '../entities/todo.entity';
+import { Repository } from 'typeorm';
+
+@Injectable()
+export class TodoService {
+  constructor(
+    @InjectRepository(Todo)
+    private readonly todoRepository: Repository<Todo>,
+  ) {}
+}
+```
+
