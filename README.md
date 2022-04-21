@@ -193,4 +193,27 @@ npm run format
 
 諸々正された、、、ヨシ！
 
+# step4: エラーチェックしてみる
+
+プロジェクトをつくったときにESLintの実行コマンドがlintで登録されているのでそれを叩きます
+
+/api/src/main.tsのasyncをsyncなどとミスらせて、どん！
+
+```shell
+docker-compose exec api sh
+npm run lint
+
+# > api@0.0.1 lint
+# > eslint "{src,apps,libs,test}/**/*.ts" --fix
+#
+#
+# /api/src/main.ts
+#   4:0  error  Parsing error: Unknown keyword or identifier. Did you mean 'async'?
+#
+# ✖ 1 problem (1 error, 0 warnings)
+```
+
+怒られた！ヨシ！
+
+/api/src/main.ts戻しておきます
 
