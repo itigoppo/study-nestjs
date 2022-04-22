@@ -896,3 +896,222 @@ curl http://localhost:3000/todo/1 -X PATCH -d "title=123456789012345678901"
 ```
 
 怒られた！ヨシ！
+
+# step14: 本文の必須を外す
+
+- entityの編集
+
+/api/src/entities/todo.entity.tsを以下で編集する
+
+```ts
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+
+@Entity()
+export class Todo {
+  @PrimaryGeneratedColumn()
+  readonly id: number;
+
+  @Column({ length: 100 })
+  title: string;
+
+  @Column('text', { nullable: true }) // オプションにnullable: trueを追加
+  description: string;
+
+  @Column('datetime', { name: 'completed_at', precision: 0, default: null })
+  completedAt: string | null = null;
+
+  @Column('datetime', {
+    name: 'created_at',
+    precision: 0,
+    default: null,
+    nullable: false,
+  })
+  createdAt: string | null = null;
+
+  @Column('datetime', {
+    name: 'updated_at',
+    precision: 0,
+    default: null,
+    nullable: false,
+  })
+  updatedAt: string | null = null;
+}
+```
+
+- migrationを作成&実行
+
+entityを変更するとそれに合わせてマイグレーションファイルを作ってくれるのでそのまま実行しちゃう
+
+```shell
+docker-compose exec api sh
+npm run build
+npx typeorm migration:generate -d src/migrations -n modified-todo
+npm run build
+npx typeorm migration:run
+```
+
+- テーブルの確認をする
+
+一旦apiコンテナからでてdbコンテナに入ってmysqlにログイン
+
+```shell
+docker-compose exec db sh
+mysql -uroot -p
+# enter password: root
+```
+
+```mysql
+USE study;
+
+SHOW COLUMNS FROM `todo`;
+
+# +--------------+--------------+------+-----+---------+----------------+
+# | Field        | Type         | Null | Key | Default | Extra          |
+# +--------------+--------------+------+-----+---------+----------------+
+# | id           | int          | NO   | PRI | NULL    | auto_increment |
+# | title        | varchar(100) | NO   |     | NULL    |                |
+# | description  | text         | YES  |     | NULL    |                |
+# | completed_at | datetime     | YES  |     | NULL    |                |
+# | created_at   | datetime     | NO   |     | NULL    |                |
+# | updated_at   | datetime     | NO   |     | NULL    |                |
+# +--------------+--------------+------+-----+---------+----------------+
+# 6 rows in set (0.00 sec)
+```
+
+descriptionのNullがYESに変わってるヨシ！
+
+- 作成時のデータ受け取りもDTOに変えちゃう
+
+/api/src/todo/todo.dto.tsを以下で編集する
+
+```ts
+import { IsNotEmpty, IsOptional, IsString, Length } from 'class-validator'; // IsNotEmpty追加
+export class UpdateTodoDto {
+  // ...省略
+}
+
+export class CreateTodoDto {
+  // 必須
+  @IsNotEmpty()
+  // string型指定
+  @IsString()
+  // 20文字以内
+  @Length(1, 20, { message: '$constraint2文字以下で入力してください' })
+  title: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  // string型指定
+  @IsString()
+  // 500文字以内
+  @Length(1, 500, { message: '$constraint2文字以下で入力してください' })
+  description: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  createdAt: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  updatedAt: string;
+}
+```
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+```ts
+import { CreateTodoDto, UpdateTodoDto } from './todo.dto'; // CreateTodoDto追加
+export class TodoController {
+  // ...省略
+  @Post()
+  async create(@Body() bodies: CreateTodoDto) {
+    return await this.service.create(bodies);
+  }
+}
+```
+
+/api/src/todo/todo.service.tsのインサートするメソッドを編集する
+
+```ts
+import { CreateTodoDto, UpdateTodoDto } from './todo.dto'; // CreateTodoDto追加
+export class TodoService {
+  // ...省略
+  create(todo: CreateTodoDto) {
+    const now = Dayjs();
+    todo.createdAt = now.tz().format();
+    todo.updatedAt = now.tz().format();
+
+    return this.todoRepository.insert(todo);
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/todo -X POST -d "title=4つ目のTODO"
+
+// {"identifiers":[{"id":5}],"generatedMaps":[{"id":5,"completedAt":null,"createdAt":"2022-04-22T03:30:39.000Z","updatedAt":"2022-04-22T03:30:39.000Z"}],"raw":{"fieldCount":0,"affectedRows":1,"insertId":5,"info":"","serverStatus":2,"warningStatus":0}}%
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+[
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-04-21T09:32:41.000Z",
+    "id": 1,
+    "title": "1つ目のTODO",
+    "description": "後で書く"
+  },
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:11:50.000Z",
+    "updatedAt": "2022-04-21T08:11:50.000Z",
+    "id": 3,
+    "title": "3つ目のTODO",
+    "description": "後で書く"
+  },
+  {
+    "completedAt": null,
+    "createdAt": "2022-04-22T03:30:39.000Z",
+    "updatedAt": "2022-04-22T03:30:39.000Z",
+    "id": 5,
+    "title": "4つ目のTODO",
+    "description": null
+  }
+]
+```
+
+ちなみにtitle指定をとると、、、。
+
+```shell
+curl http://localhost:3000/todo -X POST -d "description=5つ目のTODO"
+```
+
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "20文字以下で入力してください",
+    "title must be a string",
+    "title should not be empty"
+  ],
+  "error": "Bad Request"
+}
+```
+
+怒られた！ヨシ！

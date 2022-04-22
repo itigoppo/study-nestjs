@@ -8,7 +8,7 @@ export class Todo {
   @Column({ length: 100 })
   title: string;
 
-  @Column('text')
+  @Column('text', { nullable: true })
   description: string;
 
   @Column('datetime', { name: 'completed_at', precision: 0, default: null })
