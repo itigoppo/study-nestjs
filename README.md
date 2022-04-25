@@ -1115,3 +1115,182 @@ curl http://localhost:3000/todo -X POST -d "description=5つ目のTODO"
 ```
 
 怒られた！ヨシ！
+
+# step15: DBの設定を環境変数を使うように変える
+
+- .envを作成する
+
+/api/src/config/.envを以下で作成する
+
+```text
+DB_HOST=db
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=root
+DB_DATABASE=study
+```
+
+※設定ファイル周りまとめておきたいのでルート直下にいれてません
+
+- Configを導入する
+
+```shell
+docker-compose exec api sh
+npm install --save @nestjs/config
+```
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConfigModule } from '@nestjs/config'; // 追加
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { TodoModule } from './todo/todo.module';
+
+@Module({
+  imports: [
+    // ↓追加
+    ConfigModule.forRoot({
+      envFilePath: ['./src/config/.env'],
+    }),
+    // ↑追加
+    TypeOrmModule.forRoot(),
+    TodoModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+
+```
+
+- 設定ファイルを置き換える
+
+/api/src/config/database.service.tsを以下で作成する
+
+```ts
+import { TypeOrmOptionsFactory, TypeOrmModuleOptions } from '@nestjs/typeorm';
+import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    return {
+      type: 'mysql' as const,
+      host: configService.get<string>('DB_HOST'),
+      port: parseInt(configService.get<string>('DB_PORT'), 3306),
+      username: configService.get<string>('DB_USERNAME'),
+      password: configService.get<string>('DB_PASSWORD'),
+      database: configService.get<string>('DB_DATABASE'),
+      entities: ['dist/entities/**/*.entity.js'],
+      migrations: ['dist/migrations/**/*.js'],
+      logging: true,
+      synchronize: true,
+      cli: {
+        entitiesDir: './src/**',
+        migrationsDir: './src/migrations',
+      },
+    };
+  }
+}
+```
+
+要らなくなるので/api/ormconfig.jsonを削除
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+import { Module } from '@nestjs/common';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
+import { ConfigModule, ConfigService } from '@nestjs/config'; // ConfigService追加
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { TypeOrmConfigService } from './config/database.service'; // 追加
+import { TodoModule } from './todo/todo.module';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      envFilePath: ['./src/config/.env'],
+    }),
+    // ↓変更
+    TypeOrmModule.forRootAsync({
+      imports: [ConfigModule],
+      useClass: TypeOrmConfigService,
+      inject: [ConfigService],
+    }),
+    // ↑変更
+    TodoModule,
+  ],
+  controllers: [AppController],
+  providers: [AppService],
+})
+export class AppModule {}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:dev
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+登録データが返ってきたらヨシ！
+
+- migrationも環境変数見てほしい
+
+今のままだとmigrationコマンド実行時にみる設定ファイルが消えたままなのでごねごねします
+
+/api/src/config/migration.tsを以下で作成する
+
+```ts
+const dotenv = require('dotenv');
+dotenv.config({ path: './src/config/.env' });
+
+import { TypeOrmConfigService } from './database.service';
+export default new TypeOrmConfigService().createTypeOrmOptions();
+```
+
+公式ドキュメント通りにやったらルート直下にない.envを読まなかったので無理やり突破
+
+- コマンドを登録しておく
+
+/api/package.jsonを以下で編集する
+
+```json
+{
+  // ...省略
+  "scripts": {
+    // ...省略
+    "typeorm": "npx ts-node ./node_modules/.bin/typeorm -f ./src/config/migration", // 追加
+    "migrations:run": "npm run build && npm run typeorm migration:run", // 追加
+    "migrations:rollback": "npm run typeorm migration:revert", // 追加
+    "migrations:show": "npm run typeorm migration:show", // 追加
+    "migration": "npm run build && npm run typeorm migration:generate -- -d src/migrations -n " // 追加
+  },
+  // ...省略
+}
+```
+
+ビルドもついでにしちゃったほうが楽かなって
+
+```shell
+// ビルド＆ファイル作成
+npm run migration [ファイル名]
+// ビルド＆実行
+npm run migrations:run
+// もとに戻す
+npm run migrations:rollback
+// 状況確認
+npm run migrations:show
+```
+
+コマンド叩いてみて動けばヨシ！
