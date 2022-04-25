@@ -1,6 +1,7 @@
 import { TypeOrmOptionsFactory, TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getMetadataArgsStorage } from 'typeorm';
 
 @Injectable()
 export class TypeOrmConfigService implements TypeOrmOptionsFactory {
@@ -13,7 +14,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
       username: configService.get<string>('DB_USERNAME'),
       password: configService.get<string>('DB_PASSWORD'),
       database: configService.get<string>('DB_DATABASE'),
-      entities: ['dist/entities/**/*.entity.js'],
+      entities: getMetadataArgsStorage().tables.map((tbl) => tbl.target),
       migrations: ['dist/migrations/**/*.js'],
       logging: true,
       synchronize: true,
@@ -21,6 +22,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
         entitiesDir: './src/**',
         migrationsDir: './src/migrations',
       },
+      keepConnectionAlive: true,
     };
   }
 }

@@ -1294,3 +1294,159 @@ npm run migrations:show
 ```
 
 コマンド叩いてみて動けばヨシ！
+
+# step16: HMR環境にする
+
+※メモ：npm run start:devが全更新なのに対して部分更新にする的なやつ
+
+- webpackを導入する
+
+```shell
+docker-compose exec api sh
+npm install --save-dev webpack webpack-cli webpack-node-externals ts-loader run-script-webpack-plugin @types/webpack-env
+```
+
+- webpackの設定
+
+/api/webpack.config.jsを以下で作成する
+
+```js
+const webpack = require('webpack');
+const path = require('path');
+const nodeExternals = require('webpack-node-externals');
+const { RunScriptWebpackPlugin } = require('run-script-webpack-plugin');
+
+module.exports = {
+  entry: ['webpack/hot/poll?100', './src/main.ts'],
+  target: 'node',
+  externals: [
+    nodeExternals({
+      allowlist: ['webpack/hot/poll?100'],
+    }),
+  ],
+  module: {
+    rules: [
+      {
+        test: /.tsx?$/,
+        use: 'ts-loader',
+        exclude: /node_modules/,
+      },
+    ],
+  },
+  mode: 'development',
+  resolve: {
+    extensions: ['.tsx', '.ts', '.js'],
+  },
+  plugins: [
+    new webpack.HotModuleReplacementPlugin(),
+    new RunScriptWebpackPlugin({ name: 'server.js' }),
+  ],
+  output: {
+    path: path.join(__dirname, 'dist'),
+    filename: 'server.js',
+  },
+};
+```
+
+- HMRを有効にする
+
+/api/src/main.tsを以下で編集する
+
+```ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe());
+  await app.listen(3000);
+  // ↓追加
+  if (module.hot) {
+    module.hot.accept();
+    module.hot.dispose(() => app.close());
+  }
+  // ↑追加
+}
+bootstrap();
+```
+
+- TypeORMで接続できないらしいのでentiyの呼び方を変える
+
+/api/src/config/database.config.tsを以下で編集する
+
+```ts
+import { getMetadataArgsStorage } from 'typeorm'; // 追加
+
+@Injectable()
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    return {
+      // ...省略
+      entities: getMetadataArgsStorage().tables.map((tbl) => tbl.target), //変更
+      // ...省略
+    };
+  }
+}
+
+```
+
+- コマンドを登録しておく
+
+/api/package.jsonを以下で編集する
+
+```json
+{
+  // ...省略
+  "scripts": {
+    // ...省略
+    "start:webpack": "webpack --config webpack.config.js --watch" // 追加
+  },
+  // ...省略
+}
+```
+
+- 動かしてみる
+
+まずは起動して
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+/api/src/app.service.tsのはろーわーるど部分でも変更してみる
+
+- なんか怒ってる
+
+```shell
+ERROR [TypeOrmModule] Unable to connect to the database. Retrying (9)...
+AlreadyHasActiveConnectionError: Cannot create a new connection named "default", because connection with such name already exist and it now has an active connection session.
+    at AlreadyHasActiveConnectionError.TypeORMError [as constructor] (/api/node_modules/typeorm/error/TypeORMError.js:9:28)
+```
+
+/api/src/config/database.config.tsを以下で編集する
+
+```ts
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    return {
+      // ...省略
+      cli: {
+        entitiesDir: './src/**',
+        migrationsDir: './src/migrations',
+      },
+      keepConnectionAlive: true, //追加
+    };
+  }
+}
+```
+
+```shell
+...
+webpack 5.72.0 compiled successfully in 665 ms
+```
+
+怒られずにビルドされてサーバー起動もされてるのでブラウザでアクセスできることみれたらヨシ！
