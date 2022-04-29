@@ -6,10 +6,15 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TypeOrmConfigService } from './config/database.service';
 import { TodoModule } from './todo/todo.module';
 
+let envFilePath = './src/config/.env';
+if (process.env.NODE_ENV) {
+  envFilePath = './src/config/.env.' + process.env.NODE_ENV;
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
-      envFilePath: ['./src/config/.env.development', './src/config/.env'],
+      envFilePath: [envFilePath],
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],

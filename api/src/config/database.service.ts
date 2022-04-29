@@ -22,7 +22,8 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
         entitiesDir: './src/**',
         migrationsDir: './src/migrations',
       },
-      keepConnectionAlive: true,
+      keepConnectionAlive:
+        configService.get<string>('NODE_ENV') === 'test' ? false : true,
     };
   }
 }

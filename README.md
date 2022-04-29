@@ -1450,3 +1450,214 @@ webpack 5.72.0 compiled successfully in 665 ms
 ```
 
 怒られずにビルドされてサーバー起動もされてるのでブラウザでアクセスできることみれたらヨシ！
+
+# step17: そうだテストしよう
+
+- はろーわーるど用テストがあるので叩いてみる
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+
+# > api@0.0.1 test:e2e
+# > jest --config ./test/jest-e2e.json
+#
+#  PASS  test/app.e2e-spec.ts (57.626 s)
+#   AppController (e2e)
+#     ✓ / (GET) (3814 ms)
+#
+# Test Suites: 1 passed, 1 total
+# Tests:       1 passed, 1 total
+# Snapshots:   0 total
+# Time:        59.311 s
+# Ran all test suites.
+# Jest did not exit one second after the test run has completed.
+#
+# This usually means that there are asynchronous operations that weren't stopped in your tests. Consider running Jest with `--detectOpenHandles` to troubleshoot this issue.
+```
+
+むむむ？テスト自体成功してるけどなんか終われなかったって言って止まってしまってる
+
+- とりあえずテスト用のDB設定と切り替えられるようにする
+
+テスト用のDBをまずつくります(今回はtest-studyとしてつくった)
+
+/api/src/config/.env.testを以下で作成する
+
+```text
+DB_HOST=db
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=root
+DB_DATABASE=test-study
+```
+
+環境変数で読み込みファイルかえるので/api/src/config/.envを/api/src/config/.env.developmentにリネームする
+
+※docker側でNODE_ENVをdevelopmentで仕込んだので
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+// ↓追加
+let envFilePath = './src/config/.env';
+if (process.env.NODE_ENV) {
+  envFilePath = './src/config/.env.' + process.env.NODE_ENV;
+}
+// ↑追加
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({
+      envFilePath: [envFilePath], // 変更
+    }),
+    // ...省略
+  ],
+})
+export class AppModule {}
+
+```
+
+/api/src/config/migration.tsを以下で編集する
+
+```ts
+// ↓追加
+let envFilePath = './src/config/.env';
+if (process.env.NODE_ENV) {
+  envFilePath = './src/config/.env.' + process.env.NODE_ENV;
+}
+// ↑追加
+
+const dotenv = require('dotenv');
+dotenv.config({ path: envFilePath });
+
+import { TypeOrmConfigService } from './database.service';
+export default new TypeOrmConfigService().createTypeOrmOptions();
+```
+
+- docker側でdevelopmentに設定したのでテスト実行時はtestにしたい
+
+```shell
+docker-compose exec api sh
+npm install --save-dev cross-env
+```
+
+/api/package.jsonを以下で編集する
+
+```json
+{
+  // ...省略
+  "scripts": {
+    // ...省略
+    "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json" // 変更
+  },
+  // ...省略
+}
+```
+
+- テスト用DBを見てるか確認する
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+TypeORMの設定でSQLログONにしてるのでテスト実行時にtest-studyみにいってるログが流れてるのが確認できたらヨシ！
+
+- API側に影響出てないことを確認する
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+登録データが返ってきたらヨシ！
+
+- 実行完了しない問題をなんとかする
+
+倒すのはこれ
+
+```shell
+# Jest did not exit one second after the test run has completed.
+#
+# This usually means that there are asynchronous operations that weren't stopped in your tests. Consider running Jest with `--detectOpenHandles` to troubleshoot this issue.
+```
+
+/api/src/config/database.service.tsを以下で編集する
+
+```ts
+
+@Injectable()
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    return {
+      // ...省略
+      keepConnectionAlive:
+        configService.get<string>('NODE_ENV') === 'test' ? false : true, // 変更
+      // ...省略
+    };
+  }
+}
+
+```
+
+/api/test/app.e2e-spec.tsを以下で編集する
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../src/app.module';
+
+describe('AppController (e2e)', () => {
+  let app: INestApplication;
+
+  beforeEach(async () => {
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    app = moduleFixture.createNestApplication();
+    await app.init();
+  });
+
+  // ↓追加
+  afterAll(async () => {
+    await app.close();
+  });
+  // ↑追加
+
+  it('/ (GET)', () => {
+    return request(app.getHttpServer())
+      .get('/')
+      .expect(200)
+      .expect('Hello World!');
+  });
+});
+
+```
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+
+# > api@0.0.1 test:e2e
+# > cross-env NODE_ENV=test jest --config ./test/jest-e2e.json
+#
+#  PASS  test/app.e2e-spec.ts (32.87 s)
+#   AppController (e2e)
+#     ✓ / (GET) (2459 ms)
+#
+# Test Suites: 1 passed, 1 total
+# Tests:       1 passed, 1 total
+# Snapshots:   0 total
+# Time:        33.62 s, estimated 41 s
+# Ran all test suites.
+```
+
+実行完了した！ヨシ！

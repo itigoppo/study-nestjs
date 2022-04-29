@@ -12,6 +12,8 @@ services:
         target: /api
     depends_on:
       - db
+    environment:
+      NODE_ENV: development
 
   db:
     container_name: db
