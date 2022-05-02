@@ -16,8 +16,11 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
       database: configService.get<string>('DB_DATABASE'),
       entities: getMetadataArgsStorage().tables.map((tbl) => tbl.target),
       migrations: ['dist/migrations/**/*.js'],
-      logging: true,
-      synchronize: true,
+      logging: configService.get<string>('NODE_ENV') === 'test' ? false : true,
+      synchronize:
+        configService.get<string>('NODE_ENV') === 'test' ? true : false,
+      dropSchema:
+        configService.get<string>('NODE_ENV') === 'test' ? true : false,
       cli: {
         entitiesDir: './src/**',
         migrationsDir: './src/migrations',
