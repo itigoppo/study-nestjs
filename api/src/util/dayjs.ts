@@ -1,7 +1,6 @@
-import * as dayjs from 'dayjs';
-
-import * as utc from 'dayjs/plugin/utc';
-import * as timezone from 'dayjs/plugin/timezone';
+import dayjs = require('dayjs');
+import utc = require('dayjs/plugin/utc');
+import timezone = require('dayjs/plugin/timezone');
 
 // 日本時間に変換する
 import 'dayjs/locale/ja';

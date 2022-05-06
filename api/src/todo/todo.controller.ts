@@ -3,8 +3,6 @@ import {
   Controller,
   Delete,
   Get,
-  HttpException,
-  HttpStatus,
   Param,
   Patch,
   Post,
@@ -28,49 +26,16 @@ export class TodoController {
 
   @Get(':id')
   async findOne(@Param() params: { id: string }) {
-    const todo = await this.service.findOne(Number(params.id));
-    if (!todo) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'Missing item(id: ' + params.id + ').',
-        },
-        404,
-      );
-    }
-
-    return todo;
+    return await this.service.findOne(Number(params.id));
   }
 
   @Patch(':id')
   async update(@Param() params: { id: string }, @Body() bodies: UpdateTodoDto) {
-    const todo = await this.service.findOne(Number(params.id));
-    if (!todo) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'Missing item(id: ' + params.id + ').',
-        },
-        404,
-      );
-    }
-
     return await this.service.update(Number(params.id), bodies);
   }
 
   @Delete(':id')
   async delete(@Param() params: { id: string }) {
-    const todo = await this.service.findOne(Number(params.id));
-    if (!todo) {
-      throw new HttpException(
-        {
-          status: HttpStatus.NOT_FOUND,
-          error: 'Missing item(id: ' + params.id + ').',
-        },
-        404,
-      );
-    }
-
     return await this.service.delete(Number(params.id));
   }
 }

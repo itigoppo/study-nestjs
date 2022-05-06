@@ -56,6 +56,9 @@ export class AllExceptionsFilter implements ExceptionFilter {
       errorResponse.error.code = (exception as any).code;
       errorResponse.error.name = (exception as any).message;
       errorResponse.error.message = (exception as any).sql;
+    } else {
+      console.log(exception.constructor);
+      console.log(exception);
     }
 
     response.status(status).json(errorResponse);

@@ -2526,3 +2526,786 @@ npm run test:e2e
 ```
 
 テストを実行してキレイに通ったらヨシ！
+
+# step21: 正常系のレスポンスを整える
+
+- 作成機能のレスポンスを整える
+
+/api/src/todo/todo.service.tsのインサートするメソッドを編集する
+
+作成されたエンティティの中身返すようにしたのとなんらかエラー起きたらエラーキャッチするように変更
+
+```ts
+import { Injectable, InternalServerErrorException } from '@nestjs/common'; // InternalServerErrorException追加
+export class TodoService {
+  // ...省略
+  async create(todo: CreateTodoDto) {
+    const now = Dayjs();
+    todo.createdAt = now.tz().format();
+    todo.updatedAt = now.tz().format();
+
+    await this.todoRepository.insert(todo).catch((e) => {
+      throw new InternalServerErrorException('データの作成に失敗しました');
+    });
+
+    return {
+      success: true,
+      data: todo as Todo,
+    };
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/todo -X POST -d "title=5つ目のTODO"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "title": "5つ目のTODO",
+    "createdAt": "2022-05-06T04:50:30.000Z",
+    "updatedAt": "2022-05-06T04:50:30.000Z",
+    "id": 14,
+    "completedAt": null
+  }
+}
+```
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('TodoController (e2e)', () => {
+  let app: INestApplication;
+
+  // ...省略
+
+  describe('作成テスト', () => {
+    // ...省略
+    it('OK /todo (POST)', async () => {
+      const res = await create({
+        title: 'create test title',
+        description: 'create test description',
+      });
+
+      const now = Dayjs(); // 追加
+      // ステータスの確認
+      expect(res.status).toEqual(201);
+      // 追加されたIDの確認
+      expect(res.body.raw.insertId).toEqual(1); // 削除
+      // ↓追加
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(true);
+      // 追加されたデータの確認
+      expect(res.body.data.id).toEqual(1);
+      expect(res.body.data.title).toEqual('create test title');
+      expect(res.body.data.description).toEqual('create test description');
+      expect(res.body.data.completedAt).toBeNull();
+      expect(Dayjs(res.body.data.createdAt).format('YYYY-MM-DD')).toEqual(
+        now.format('YYYY-MM-DD'),
+      );
+      expect(Dayjs(res.body.data.updatedAt).format('YYYY-MM-DD')).toEqual(
+        now.format('YYYY-MM-DD'),
+      );
+      // ↑追加
+    });
+  });
+});
+```
+
+作成テストが自分で作ったデータの確認できるようになったよやったね
+
+- 一覧取得機能のレスポンスを整える
+
+/api/src/todo/todo.service.tsの一覧取得メソッドを編集する
+
+ここはTypeORMから受け取ったままでそんなに困ってなかったので他とフォーマットを合わせるだけの変更
+
+```ts
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common'; // NotFoundException追加
+export class TodoService {
+  // ...省略
+  async findAll() {
+    return await this.todoRepository
+      .find()
+      .catch((e) => {
+        throw new InternalServerErrorException('一覧の取得に失敗しました');
+      })
+      .then(function (value) {
+        return {
+          success: true,
+          data: value,
+        };
+      });
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "completedAt": null,
+      "createdAt": "2022-04-21T08:07:58.000Z",
+      "updatedAt": "2022-04-21T08:07:58.000Z",
+      "id": 1,
+      "title": "最初のTODO",
+      "description": "後で書く"
+    },
+    {
+      "completedAt": null,
+      "createdAt": "2022-04-21T08:11:41.000Z",
+      "updatedAt": "2022-04-21T08:11:41.000Z",
+      "id": 2,
+      "title": "2つ目のTODO",
+      "description": "後で書く"
+    }
+  ]
+}
+```
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('一覧テスト', () => {
+  it('OK /todo (GET)', async () => {
+    // 取得用データ作成
+    const createRes = await create({
+      title: 'find all test title',
+    });
+    const id = createRes.body.data.id; // createRes.body.raw.insertId→createRes.body.data.id変更
+
+    const res = await findAll();
+
+    const now = Dayjs();
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true); // 追加
+    // レスポンス内のデータの確認
+    expect(Array.isArray(res.body.data)).toEqual(true); // res.body→res.body.data変更
+
+    // データが取得できていることの確認
+    const todo = res.body.data.pop(); // res.body→res.body.data変更
+    expect(todo.id).toEqual(id);
+    expect(todo.title).toEqual('find all test title');
+    expect(todo.description).toBeNull();
+    expect(todo.completedAt).toBeNull();
+    expect(Dayjs(todo.createdAt).format('YYYY-MM-DD')).toEqual(
+      now.format('YYYY-MM-DD'),
+    );
+    expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD')).toEqual(
+      now.format('YYYY-MM-DD'),
+    );
+  });
+});
+```
+
+ここはまだ特になんにも整わないね
+
+- 一件取得機能のレスポンスを整える
+
+/api/src/todo/todo.service.tsの一件取得メソッドを編集する
+
+一覧と同じくレスポンスとしてはTypeORMから受け取ったままでそんなに困ってなかったので他とフォーマットを合わせるだけの変更
+
+ただNumber()に通してNaNにされたものはSQLに通す前にそもそも不正なので先に弾き飛ばすように
+
+```ts
+export class TodoService {
+  // ...省略
+  async findOne(id: number) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    return await this.todoRepository
+      .findOne({
+        id: id,
+      })
+      .catch((e) => {
+        throw new InternalServerErrorException('データの取得に失敗しました');
+      })
+      .then(function (value) {
+        if (!value) {
+          throw new NotFoundException('データの取得に失敗しました');
+        }
+
+        return {
+          success: true,
+          data: value,
+        };
+      });
+  }
+}
+```
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+Serviceでデータが取れなかったときの対処をしたからController側は不要になったのでまるっと削除
+
+```ts
+export class TodoController {
+  // ...省略
+  @Get(':id')
+  async findOne(@Param() params: { id: string }) {
+    return await this.service.findOne(Number(params.id));
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+http://localhost:3000/todo/1 にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "success": true,
+  "data": {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-04-21T08:07:58.000Z",
+    "id": 1,
+    "title": "最初のTODO",
+    "description": "後で書く"
+  }
+}
+```
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('1件取得テスト', () => {
+  it('OK /todo/:id (GET)', async () => {
+    // 取得用データ作成
+    const createRes = await create({
+      title: 'find one test title',
+    });
+    const id = createRes.body.data.id; // createRes.body.raw.insertId→createRes.body.data.id変更
+
+    const res = await findOne(id);
+
+    const now = Dayjs();
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true); // 追加
+
+    // 登録されたデータが取得できていることの確認
+    const todo = res.body.data; // res.body→res.body.data変更
+    expect(todo.id).toEqual(id);
+    expect(todo.title).toEqual('find one test title');
+    expect(todo.description).toBeNull();
+    expect(todo.completedAt).toBeNull();
+    expect(Dayjs(todo.createdAt).format('YYYY-MM-DD')).toEqual(
+      now.format('YYYY-MM-DD'),
+    );
+    expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD')).toEqual(
+      now.format('YYYY-MM-DD'),
+    );
+  });
+
+  // ...省略
+  it('NG(type error) /todo/:id (GET)', async () => {
+    const res = await findOne('a');
+    // ステータスの確認
+    expect(res.status).toEqual(404); // 422→404変更
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(false); //追加
+  });
+});
+```
+
+正常分はここもまだ特になんにも整わないね
+
+- 編集機能のレスポンスを整える
+
+/api/src/todo/todo.service.tsの一件取得メソッドを編集する
+
+変更されたエンティティの中身返すように、変更前も返すように
+
+あとできれば変更されたかどうかも判断したいしそもそも変更ないなら更新しないでほしい
+
+オブジェクトの差分とったりオブジェクトが空か確認したりしたかったのでライブラリを入れる
+
+```shell
+docker-compose exec api sh
+npm install --save just-diff
+npm install --save just-is-empty
+```
+
+@link https://github.com/angus-c/just/#just-diff
+
+@link https://github.com/angus-c/just/#just-is-empty
+
+```ts
+import { diff } from 'just-diff'; // 追加
+import isEmpty from 'just-is-empty'; // 追加
+export class TodoService {
+  // ...省略
+  async update(id: number, todo: UpdateTodoDto) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+    const original = await this.findOne(id);
+    let change = { ...original.data, ...todo };
+
+    if (isEmpty(diff(change, original.data))) {
+      return {
+        success: true,
+        data: change as Todo,
+        isDirty: false,
+        dirty: {},
+        original: original.data,
+      };
+    }
+
+    todo.updatedAt = Dayjs().tz().format();
+
+    return await this.todoRepository
+      .update(
+        {
+          id: id,
+        },
+        todo,
+      )
+      .catch((e) => {
+        throw new InternalServerErrorException('データの更新に失敗しました');
+      })
+      .then(function (value) {
+        change = { ...original.data, ...todo };
+        const diffData = diff(original.data, change);
+
+        const dirties = {};
+        for (const element of diffData) {
+          if (element.op === 'replace') {
+            dirties[element.path[0]] = element.value;
+          }
+        }
+
+        return {
+          success: true,
+          data: change as Todo,
+          isDirty: !isEmpty(diffData),
+          dirty: dirties,
+          original: original.data,
+        };
+      });
+  }
+}
+```
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+Serviceでデータが取れなかったときの対処をした(実際したのはfindOne)からController側は不要になったのでまるっと削除
+
+```ts
+export class TodoController {
+  // ...省略
+  @Patch(':id')
+  async update(@Param() params: { id: string }, @Body() bodies: UpdateTodoDto) {
+    return await this.service.update(Number(params.id), bodies);
+  }
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPATCHアクセス
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=1つ目のTODO!&description=後で消す"
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-05-06T15:44:39+09:00",
+  "method": "PATCH",
+  "path": "/todo/1",
+  "error": {
+      "code": "UnknownException",
+      "name": "error",
+      "message": "Something Went Wrong"
+  }
+}
+```
+
+なーんかエラー出てるけど握りつぶしててわからんぴ
+
+- フィルターでコンソールに全部出るように変える
+
+/api/src/filters/all-exceptions.filter.tsを以下で編集する
+
+```ts
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    // ...省略
+    if (exception instanceof HttpException) {
+      // ...省略
+    } else if (exception instanceof TypeORMError) {
+      // ...省略
+    } else {
+      console.log(exception); // 追加
+    }
+
+    response.status(status).json(errorResponse);
+  }
+}
+
+```
+
+想定してないやつは一旦エクセプション自体をコンソールに出力する
+
+- 改めてエラー対策
+
+```shell
+TypeError: (0 , just_is_empty_1.default) is not a function
+    at TodoService.update (webpack://api/./src/todo/todo.service.ts?:79:41)
+    at processTicksAndRejections (node:internal/process/task_queues:96:5)
+    at async TodoController.update (webpack://api/./src/todo/todo.controller.ts?:33:16)
+    at async /api/node_modules/@nestjs/core/router/router-execution-context.js:46:28
+    at async /api/node_modules/@nestjs/core/router/router-proxy.js:9:17
+```
+
+/api/tsconfig.jsonに以下を追加する
+
+```json
+"esModuleInterop": true
+```
+
+@link https://code-log.hatenablog.com/entry/2019/08/31/105535
+
+```shell
+src/util/dayjs.ts:3:1
+  3 import * as timezone from 'dayjs/plugin/timezone';
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  Type originates at this import. A namespace-style import cannot be called or constructed, and will cause a failure at runtime. Consider using a default import or import require here instead.
+```
+
+今度はなんだ、、、
+
+@link https://qiita.com/karak/items/29ff148788f5abb15331
+
+> 関数や class を export するモジュールを import する場合、import * as _ from '_' のかわりに import _ = require('_') を使う。
+
+なるほど
+
+/api/src/util/dayjs.tsを以下で編集する
+
+
+```ts
+import * as dayjs from 'dayjs'; // 削除
+import * as utc from 'dayjs/plugin/utc'; // 削除
+import * as timezone from 'dayjs/plugin/timezone'; // 削除
+import dayjs = require('dayjs'); // 追加
+import utc = require('dayjs/plugin/utc'); // 追加
+import timezone = require('dayjs/plugin/timezone'); // 追加
+```
+
+- 改めてアクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPATCHアクセス
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=1つ目のTODO!&description=後で消す"
+```
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+
+{
+  "success": true,
+  "data": {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-05-06T16:24:00+09:00",
+    "id": 1,
+    "title": "1つ目のTODO!",
+    "description": "後で消す"
+  },
+  "isDirty": true,
+  "dirty": {
+    "updatedAt": "2022-05-06T16:24:00+09:00",
+    "title": "1つ目のTODO!",
+    "description": "後で消す"
+  },
+  "original": {
+    "completedAt": null,
+    "createdAt": "2022-04-21T08:07:58.000Z",
+    "updatedAt": "2022-04-21T09:32:41.000Z",
+    "id": 1,
+    "title": "1つ目のTODO",
+    "description": "後で書く"
+  }
+}
+```
+
+なんにも変更がないとisDirtyがfalseになってdirtyが空で返ります
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('編集テスト', () => {
+  it('OK /todo/:id (PATCH)', async () => {
+    // 編集用データ作成
+    const createRes = await create({
+      title: 'before test title',
+    });
+    const id = createRes.body.data.id;
+
+    // 更新日ずらすためにちょっと止める
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    await sleep(1000);
+
+    const res = await update(id, {
+      title: 'update test title',
+      description: 'update test description',
+    });
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true);
+    // 変更があったか確認
+    expect(res.body.isDirty).toEqual(true);
+    // 変更があった要素の確認
+    expect('title' in res.body.dirty).toEqual(true);
+    expect('description' in res.body.dirty).toEqual(true);
+    expect('updatedAt' in res.body.dirty).toEqual(true);
+    // 変更がない要素の確認
+    expect('id' in res.body.dirty).toEqual(false);
+    expect('completedAt' in res.body.dirty).toEqual(false);
+    expect('createdAt' in res.body.dirty).toEqual(false);
+    // 変更されたデータが取得できていることの確認
+    const todo = res.body.data;
+    expect(todo.title).toEqual('update test title');
+    expect(todo.description).toEqual('update test description');
+  });
+
+  // ...省略
+  it('NG(type error) /todo/:id (PATCH)', async () => {
+    const res = await update('aa', {
+      title: 'update test title',
+    });
+    // ステータスの確認
+    expect(res.status).toEqual(404); // 422→404変更
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(false); //追加
+  });
+
+  it('NG(validation error) /todo/:id (PATCH)', async () => {
+    // 編集用データ作成
+    const createRes = await create({
+      title: 'before test title',
+    });
+    const id = createRes.body.data.id; // createRes.body.raw.insertId→createRes.body.data.id変更
+
+    // ...省略
+  });
+});
+```
+
+変更データの確認が簡単になったねやったね
+
+- テストのimportをrequireに変更する
+
+```shell
+test/app.e2e-spec.ts:24:12 - error TS2349: This expression is not callable.
+  Type 'typeof supertest' has no call signatures.
+
+24     return request(app.getHttpServer())
+              ~~~~~~~
+
+  test/app.e2e-spec.ts:3:1
+    3 import * as request from 'supertest';
+      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Type originates at this import. A namespace-style import cannot be called or constructed, and will cause a failure at runtime. Consider using a default import or import require here instead.
+```
+
+怒ってるので/api/test/app.e2e-spec.tsと/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+import * as request from 'supertest'; // 削除
+import request = require('supertest'); // 追加
+```
+
+- 削除機能のレスポンスを整える
+
+/api/src/todo/todo.service.tsの一件取得メソッドを編集する
+
+削除のレスポンスってどうがいいんだろうね？
+
+```ts
+export class TodoService {
+  // ...省略
+  async delete(id: number) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+    const original = await this.findOne(id);
+
+    return await this.todoRepository
+      .delete({
+        id: id,
+      })
+      .catch((e) => {
+        throw new InternalServerErrorException('データの削除に失敗しました');
+      })
+      .then(function (value) {
+        return {
+          success: true,
+          data: original.data,
+        };
+      });
+  }
+}
+```
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+Serviceでデータが取れなかったときの対処をした(実際したのはfindOne)からController側は不要になったのでまるっと削除
+
+```ts
+export class TodoController {
+  // ...省略
+  @Delete(':id')
+  async delete(@Param() params: { id: string }) {
+    return await this.service.delete(Number(params.id));
+  }
+}
+```
+
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでDELETEアクセス
+
+```shell
+curl http://localhost:3000/todo/3 -X DELETE
+```
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "success": true,
+  "data": {
+    "completedAt": null,
+    "createdAt": "2022-05-02T16:47:40.000Z",
+    "updatedAt": "2022-05-02T16:47:40.000Z",
+    "id": 3,
+    "title": "3つ目のTODO",
+    "description": null
+  }
+}
+```
+
+http://localhost:3000/todo にブラウザでアクセス
+
+消えてるのを確認できたらヨシ！
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('削除テスト', () => {
+  it('OK /todo/:id (DELETE)', async () => {
+    // 削除用データ作成
+    const createRes = await create({
+      title: 'delete test',
+    });
+    const id = createRes.body.data.id;
+
+    const res = await deleteOne(id);
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true);
+
+    // 削除されたので取得できないことの確認
+    const findRes = await findOne(id);
+    // ステータスの確認
+    expect(findRes.status).toEqual(404);
+  });
+
+  // ...省略
+  it('NG(type error) /todo/:id (DELETE)', async () => {
+    const res = await deleteOne('a');
+    // ステータスの確認
+    expect(res.status).toEqual(404); // 422→404変更
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(false); //追加
+  });
+});
+```
+
+正常時も異常時も合わせてレスポンスになんとなく統一感でたのでヨシ！
