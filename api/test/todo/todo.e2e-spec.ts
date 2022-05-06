@@ -3,7 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from './../../src/app.module';
 import Dayjs from './../../src/util/dayjs';
-import { HttpExceptionFilter } from './../../src/filters/http-exception.filter';
+import { AllExceptionsFilter } from './../../src/filters/all-exceptions.filter';
 
 describe('TodoController (e2e)', () => {
   let app: INestApplication;
@@ -22,7 +22,7 @@ describe('TodoController (e2e)', () => {
     app.useGlobalPipes(new ValidationPipe());
 
     // 例外フィルターを有効にする
-    app.useGlobalFilters(new HttpExceptionFilter());
+    app.useGlobalFilters(new AllExceptionsFilter());
 
     // インスタンス初期化
     await app.init();
@@ -205,7 +205,11 @@ describe('TodoController (e2e)', () => {
     it('NG(type error) /todo/:id (GET)', async () => {
       const res = await findOne('a');
       // ステータスの確認
-      expect(res.status).toEqual(500);
+      expect(res.status).toEqual(422);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
+      // SQLエラーコードの確認
+      expect(res.body.error.code).toEqual('ER_BAD_FIELD_ERROR');
     });
   });
 
@@ -258,7 +262,11 @@ describe('TodoController (e2e)', () => {
         title: 'update test title',
       });
       // ステータスの確認
-      expect(res.status).toEqual(500);
+      expect(res.status).toEqual(422);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
+      // SQLエラーコードの確認
+      expect(res.body.error.code).toEqual('ER_BAD_FIELD_ERROR');
     });
 
     it('NG(validation error) /todo/:id (PATCH)', async () => {
@@ -329,7 +337,11 @@ describe('TodoController (e2e)', () => {
     it('NG(type error) /todo/:id (DELETE)', async () => {
       const res = await deleteOne('aa');
       // ステータスの確認
-      expect(res.status).toEqual(500);
+      expect(res.status).toEqual(422);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
+      // SQLエラーコードの確認
+      expect(res.body.error.code).toEqual('ER_BAD_FIELD_ERROR');
     });
   });
 });

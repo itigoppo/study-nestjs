@@ -2308,3 +2308,221 @@ npm run test:e2e
 ```
 
 テストを実行して通ったらヨシ！
+
+# step20: TypeORMErrorのレスポンスも整えたい
+
+- 例外フィルターを作成する
+
+/api/src/filters/all-exceptions.filter.tsを以下で作成する
+
+```ts
+import {
+  ArgumentsHost,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
+import { TypeORMError } from 'typeorm';
+import Dayjs from '../util/dayjs';
+
+export interface ErrorResponse {
+  success: boolean;
+  timestamp: string;
+  method: string;
+  path: string;
+  error: {
+    code: string;
+    name: string;
+    message: Object | string;
+  };
+}
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse();
+    const request = ctx.getRequest();
+
+    let status = HttpStatus.INTERNAL_SERVER_ERROR;
+    const errorResponse: ErrorResponse = {
+      success: false,
+      timestamp: Dayjs().tz().format(),
+      method: request.method,
+      path: request.url,
+      error: {
+        code: 'UnknownException',
+        name: 'error',
+        message: 'Something Went Wrong',
+      },
+    };
+
+    if (exception instanceof HttpException) {
+      status = (exception as HttpException).getStatus();
+      const exceptionResponse = (exception as HttpException).getResponse();
+
+      errorResponse.error.code = 'HttpException';
+      errorResponse.error.name = exceptionResponse['error']
+        ? exceptionResponse['error']
+        : exceptionResponse;
+      errorResponse.error.message = exceptionResponse['message']
+        ? exceptionResponse['message']
+        : exception.message;
+    } else if (exception instanceof TypeORMError) {
+      status = HttpStatus.UNPROCESSABLE_ENTITY;
+      errorResponse.error.code = (exception as any).code;
+      errorResponse.error.name = (exception as any).message;
+      errorResponse.error.message = (exception as any).sql;
+    }
+
+    response.status(status).json(errorResponse);
+  }
+}
+
+```
+
+- 例外のフィルターを有効にする
+
+/api/src/main.tsを以下で編集する
+
+```ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+import { HttpExceptionFilter } from './filters/http-exception.filter'; // 削除
+import { AllExceptionsFilter } from './filters/all-exceptions.filter'; // 追加
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalFilters(new HttpExceptionFilter()); // 削除
+  app.useGlobalFilters(new AllExceptionsFilter()); // 追加
+  await app.listen(3000);
+  if (module.hot) {
+    module.hot.accept();
+    module.hot.dispose(() => app.close());
+  }
+}
+bootstrap();
+
+```
+
+- 怒られてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルで不正にアクセス
+
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=123456789012345678901"
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-05-04T18:14:28+09:00",
+  "method": "PATCH",
+  "path": "/todo/2",
+  "error": {
+    "code": "HttpException",
+    "name": "Bad Request",
+    "message": [
+      "20文字以下で入力してください"
+    ]
+  }
+}
+```
+
+問題なしヨシ！
+
+次はSQLエラーになる方
+
+```shell
+curl http://localhost:3000/todo/aa -X GET
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-05-06T11:22:31+09:00",
+  "method": "GET",
+  "path": "/todo/aaa",
+  "error": {
+    "code": "ER_BAD_FIELD_ERROR",
+    "name": "Unknown column 'NaN' in 'where clause'",
+    "message": "SELECT `Todo`.`id` AS `Todo_id`, `Todo`.`title` AS `Todo_title`, `Todo`.`description` AS `Todo_description`, `Todo`.`completed_at` AS `Todo_completed_at`, `Todo`.`created_at` AS `Todo_created_at`, `Todo`.`updated_at` AS `Todo_updated_at` FROM `todo` `Todo` WHERE `Todo`.`id` = NaN LIMIT 1"
+  }
+}
+```
+
+整ったヨシ！
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../../src/app.module';
+import Dayjs from './../../src/util/dayjs';
+import { HttpExceptionFilter } from './../../src/filters/http-exception.filter'; // 削除
+import { AllExceptionsFilter } from './../../src/filters/all-exceptions.filter'; // 追加
+
+describe('TodoController (e2e)', () => {
+  let app: INestApplication;
+
+  // 全テスト開始前に実行する
+  beforeAll(async () => {
+    // テストに必要なモジュールを作成
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    // モジュールからインスタンスを作成
+    app = moduleFixture.createNestApplication();
+
+    // DTOによるバリデーションを有効にする
+    app.useGlobalPipes(new ValidationPipe());
+
+    // 例外フィルターを有効にする
+    app.useGlobalFilters(new HttpExceptionFilter()); // 削除
+    app.useGlobalFilters(new AllExceptionsFilter()); // 追加
+
+    // インスタンス初期化
+    await app.init();
+  });
+
+  // ...省略
+
+  describe('1件取得テスト', () => {
+    // ...省略
+    it('NG(type error) /todo/:id (GET)', async () => {
+      const res = await findOne('a');
+      // ステータスの確認
+      expect(res.status).toEqual(422); // 500→422変更
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false); //追加
+      // SQLエラーコードの確認
+      expect(res.body.error.code).toEqual('ER_BAD_FIELD_ERROR'); // 追加
+    });
+  });
+});
+```
+
+NG(type error)のエラーを同じように書き換え
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+テストを実行してキレイに通ったらヨシ！
