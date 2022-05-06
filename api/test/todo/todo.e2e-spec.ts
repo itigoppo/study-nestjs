@@ -3,6 +3,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import * as request from 'supertest';
 import { AppModule } from './../../src/app.module';
 import Dayjs from './../../src/util/dayjs';
+import { HttpExceptionFilter } from './../../src/filters/http-exception.filter';
 
 describe('TodoController (e2e)', () => {
   let app: INestApplication;
@@ -19,6 +20,9 @@ describe('TodoController (e2e)', () => {
 
     // DTOによるバリデーションを有効にする
     app.useGlobalPipes(new ValidationPipe());
+
+    // 例外フィルターを有効にする
+    app.useGlobalFilters(new HttpExceptionFilter());
 
     // インスタンス初期化
     await app.init();
@@ -100,24 +104,36 @@ describe('TodoController (e2e)', () => {
       });
       // ステータスの確認
       expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
       // エラーメッセージの確認
-      expect(res.body.message).toContainEqual('20文字以下で入力してください');
+      expect(res.body.error.message).toContainEqual(
+        '20文字以下で入力してください',
+      );
       res = await create({
         title: 'create test title',
         description: 'create test description ' + '0123456789'.repeat(50),
       });
       // ステータスの確認
       expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
       // エラーメッセージの確認
-      expect(res.body.message).toContainEqual('500文字以下で入力してください');
+      expect(res.body.error.message).toContainEqual(
+        '500文字以下で入力してください',
+      );
 
       res = await create({
         title: '',
       });
       // ステータスの確認
       expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
       // エラーメッセージの確認
-      expect(res.body.message).toContainEqual('title should not be empty');
+      expect(res.body.error.message).toContainEqual(
+        'title should not be empty',
+      );
     });
   });
 
@@ -182,6 +198,8 @@ describe('TodoController (e2e)', () => {
       const res = await findOne(99);
       // ステータスの確認
       expect(res.status).toEqual(404);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
     });
 
     it('NG(type error) /todo/:id (GET)', async () => {
@@ -231,6 +249,8 @@ describe('TodoController (e2e)', () => {
       });
       // ステータスの確認
       expect(res.status).toEqual(404);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
     });
 
     it('NG(type error) /todo/:id (PATCH)', async () => {
@@ -253,8 +273,12 @@ describe('TodoController (e2e)', () => {
       });
       // ステータスの確認
       expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
       // エラーメッセージの確認
-      expect(res.body.message).toContainEqual('20文字以下で入力してください');
+      expect(res.body.error.message).toContainEqual(
+        '20文字以下で入力してください',
+      );
 
       res = await update(createId, {
         title: 'update test title',
@@ -262,8 +286,12 @@ describe('TodoController (e2e)', () => {
       });
       // ステータスの確認
       expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
       // エラーメッセージの確認
-      expect(res.body.message).toContainEqual('500文字以下で入力してください');
+      expect(res.body.error.message).toContainEqual(
+        '500文字以下で入力してください',
+      );
     });
   });
 
@@ -294,6 +322,8 @@ describe('TodoController (e2e)', () => {
       const res = await deleteOne(99);
       // ステータスの確認
       expect(res.status).toEqual(404);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
     });
 
     it('NG(type error) /todo/:id (DELETE)', async () => {

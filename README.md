@@ -2120,3 +2120,191 @@ describe('TodoController (e2e)', () => {
 ```
 
 言いたいことは多々あったけど一通りかけたのでヨシ！
+
+# step19: 例外のレスポンスを整える
+
+- 例外フィルターを作成する
+
+/api/src/filters/http-exception.filter.tsを以下で作成する
+
+```ts
+import {
+  ExceptionFilter,
+  Catch,
+  ArgumentsHost,
+  HttpException,
+} from '@nestjs/common';
+import { Request, Response } from 'express';
+import Dayjs from '../util/dayjs';
+
+export interface ErrorResponse {
+  success: boolean;
+  timestamp: string;
+  method: string;
+  path: string;
+  error: {
+    name: string;
+    message: Object | string;
+  };
+}
+
+@Catch(HttpException)
+export class HttpExceptionFilter implements ExceptionFilter {
+  catch(exception: HttpException, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse<Response>();
+    const request = ctx.getRequest<Request>();
+    const status = exception.getStatus();
+
+    const exceptionResponse = exception.getResponse();
+    const errorResponse: ErrorResponse = {
+      success: false,
+      timestamp: Dayjs().tz().format(),
+      method: request.method,
+      path: request.url,
+      error: {
+        name: exceptionResponse['error']
+          ? exceptionResponse['error']
+          : exceptionResponse,
+        message: exceptionResponse['message']
+          ? exceptionResponse['message']
+          : exception.message,
+      },
+    };
+
+    response.status(status).json(errorResponse);
+  }
+}
+
+```
+
+- 例外のフィルターを有効にする
+
+/api/src/main.tsを以下で編集する
+
+```ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+import { HttpExceptionFilter } from './filters/http-exception.filter'; // 追加
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe());
+  app.useGlobalFilters(new HttpExceptionFilter()); // 追加
+  await app.listen(3000);
+  if (module.hot) {
+    module.hot.accept();
+    module.hot.dispose(() => app.close());
+  }
+}
+bootstrap();
+
+```
+
+- 怒られてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルで不正にアクセス
+
+```shell
+curl http://localhost:3000/todo/1 -X PATCH -d "title=123456789012345678901"
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-05-04T18:14:28+09:00",
+  "method": "PATCH",
+  "path": "/todo/2",
+  "error": {
+    "name": "Bad Request",
+    "message": [
+      "20文字以下で入力してください"
+    ]
+  }
+}
+```
+
+整ったヨシ！
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+import { Test, TestingModule } from '@nestjs/testing';
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import * as request from 'supertest';
+import { AppModule } from './../../src/app.module';
+import Dayjs from './../../src/util/dayjs';
+import { HttpExceptionFilter } from './../../src/filters/http-exception.filter'; // 追加
+
+describe('TodoController (e2e)', () => {
+  let app: INestApplication;
+
+  // 全テスト開始前に実行する
+  beforeAll(async () => {
+    // テストに必要なモジュールを作成
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+
+    // モジュールからインスタンスを作成
+    app = moduleFixture.createNestApplication();
+
+    // DTOによるバリデーションを有効にする
+    app.useGlobalPipes(new ValidationPipe());
+
+    // 例外フィルターを有効にする
+    app.useGlobalFilters(new HttpExceptionFilter()); // 追加
+
+    // インスタンス初期化
+    await app.init();
+  });
+
+  // ...省略
+
+  describe('作成テスト', () => {
+    // ...省略
+    it('NG /todo (POST)', async () => {
+      // ...省略
+      // ステータスの確認
+      expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false); // 追加
+      // エラーメッセージの確認
+      expect(res.body.error.message).toContainEqual( // res.body.message→res.body.error.message変更
+        '500文字以下で入力してください',
+      );
+
+      // ...省略
+      // ステータスの確認
+      expect(res.status).toEqual(400);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false); // 追加
+      // エラーメッセージの確認
+      expect(res.body.error.message).toContainEqual( // res.body.message→res.body.error.message変更
+        'title should not be empty',
+      );
+    });
+  });
+});
+```
+
+NG(type error)以外のエラーを同じように書き換え
+
+NG(type error)はHttpExceptionではなくTypeORMErrorなので今回作ったフィルターではキャッチしきれないのでこの時点では変わらない
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+テストを実行して通ったらヨシ！
