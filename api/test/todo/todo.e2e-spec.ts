@@ -4,6 +4,8 @@ import request = require('supertest');
 import { AppModule } from './../../src/app.module';
 import Dayjs from './../../src/util/dayjs';
 import { AllExceptionsFilter } from './../../src/filters/all-exceptions.filter';
+import { getConnection } from 'typeorm';
+import { todoFactory } from './../factories/todo.factory';
 
 describe('TodoController (e2e)', () => {
   let app: INestApplication;
@@ -32,6 +34,21 @@ describe('TodoController (e2e)', () => {
   afterAll(async () => {
     // インスタンスを閉じる
     await app.close();
+  });
+
+  // テスト実行前に実行する
+  beforeEach(async () => {
+    await todoFactory.create();
+  });
+
+  // テスト実行後に実行する
+  afterEach(async () => {
+    // データクリア
+    const entities = getConnection().entityMetadatas;
+    for (const entity of entities) {
+      const repository = getConnection().getRepository(entity.name);
+      await repository.clear();
+    }
   });
 
   /**
@@ -98,7 +115,7 @@ describe('TodoController (e2e)', () => {
       // レスポンス内の成否の確認
       expect(res.body.success).toEqual(true);
       // 追加されたデータの確認
-      expect(res.body.data.id).toEqual(1);
+      expect(res.body.data.id).toEqual(2);
       expect(res.body.data.title).toEqual('create test title');
       expect(res.body.data.description).toEqual('create test description');
       expect(res.body.data.completedAt).toBeNull();
@@ -152,15 +169,8 @@ describe('TodoController (e2e)', () => {
 
   describe('一覧テスト', () => {
     it('OK /todo (GET)', async () => {
-      // 取得用データ作成
-      const createRes = await create({
-        title: 'find all test title',
-      });
-      const id = createRes.body.data.id;
-
       const res = await findAll();
 
-      const now = Dayjs();
       // ステータスの確認
       expect(res.status).toEqual(200);
       // レスポンス内の成否の確認
@@ -170,30 +180,22 @@ describe('TodoController (e2e)', () => {
 
       // データが取得できていることの確認
       const todo = res.body.data.pop();
-      expect(todo.id).toEqual(id);
-      expect(todo.title).toEqual('find all test title');
+      expect(todo.id).toEqual(1);
+      expect(todo.title).toEqual('test title');
       expect(todo.description).toBeNull();
       expect(todo.completedAt).toBeNull();
-      expect(Dayjs(todo.createdAt).format('YYYY-MM-DD')).toEqual(
-        now.format('YYYY-MM-DD'),
+      expect(Dayjs(todo.createdAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+        '1997-07-07 00:00:00',
       );
-      expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD')).toEqual(
-        now.format('YYYY-MM-DD'),
+      expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+        '1997-07-07 00:00:00',
       );
     });
   });
 
   describe('1件取得テスト', () => {
     it('OK /todo/:id (GET)', async () => {
-      // 取得用データ作成
-      const createRes = await create({
-        title: 'find one test title',
-      });
-      const id = createRes.body.data.id;
-
-      const res = await findOne(id);
-
-      const now = Dayjs();
+      const res = await findOne(1);
       // ステータスの確認
       expect(res.status).toEqual(200);
       // レスポンス内の成否の確認
@@ -201,15 +203,15 @@ describe('TodoController (e2e)', () => {
 
       // 登録されたデータが取得できていることの確認
       const todo = res.body.data;
-      expect(todo.id).toEqual(id);
-      expect(todo.title).toEqual('find one test title');
+      expect(todo.id).toEqual(1);
+      expect(todo.title).toEqual('test title');
       expect(todo.description).toBeNull();
       expect(todo.completedAt).toBeNull();
-      expect(Dayjs(todo.createdAt).format('YYYY-MM-DD')).toEqual(
-        now.format('YYYY-MM-DD'),
+      expect(Dayjs(todo.createdAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+        '1997-07-07 00:00:00',
       );
-      expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD')).toEqual(
-        now.format('YYYY-MM-DD'),
+      expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+        '1997-07-07 00:00:00',
       );
     });
 
@@ -236,17 +238,7 @@ describe('TodoController (e2e)', () => {
 
   describe('編集テスト', () => {
     it('OK /todo/:id (PATCH)', async () => {
-      // 編集用データ作成
-      const createRes = await create({
-        title: 'before test title',
-      });
-      const id = createRes.body.data.id;
-
-      // 更新日ずらすためにちょっと止める
-      const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-      await sleep(1000);
-
-      const res = await update(id, {
+      const res = await update(1, {
         title: 'update test title',
         description: 'update test description',
       });
@@ -295,13 +287,7 @@ describe('TodoController (e2e)', () => {
     });
 
     it('NG(validation error) /todo/:id (PATCH)', async () => {
-      // 編集用データ作成
-      const createRes = await create({
-        title: 'before test title',
-      });
-      const id = createRes.body.data.id;
-
-      let res = await update(id, {
+      let res = await update(1, {
         title: 'update test title over',
       });
       // ステータスの確認
@@ -313,7 +299,7 @@ describe('TodoController (e2e)', () => {
         '20文字以下で入力してください',
       );
 
-      res = await update(id, {
+      res = await update(1, {
         title: 'update test title',
         description: 'create test description ' + '0123456789'.repeat(50),
       });
@@ -330,20 +316,14 @@ describe('TodoController (e2e)', () => {
 
   describe('削除テスト', () => {
     it('OK /todo/:id (DELETE)', async () => {
-      // 削除用データ作成
-      const createRes = await create({
-        title: 'delete test',
-      });
-      const id = createRes.body.data.id;
-
-      const res = await deleteOne(id);
+      const res = await deleteOne(1);
       // ステータスの確認
       expect(res.status).toEqual(200);
       // レスポンス内の成否の確認
       expect(res.body.success).toEqual(true);
 
       // 削除されたので取得できないことの確認
-      const findRes = await findOne(id);
+      const findRes = await findOne(1);
       // ステータスの確認
       expect(findRes.status).toEqual(404);
     });

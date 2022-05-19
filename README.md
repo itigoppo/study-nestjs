@@ -3309,3 +3309,169 @@ describe('削除テスト', () => {
 ```
 
 正常時も異常時も合わせてレスポンスになんとなく統一感でたのでヨシ！
+
+# step22: テストデータはfixtureにしたい
+
+- factoryを準備する
+
+```shell
+docker-compose exec api sh
+npm install --save-dev typeorm-factory
+```
+
+@link https://www.npmjs.com/package/typeorm-factory
+
+色々調べたけどDL数多そうだからこれでいっかな的な
+
+/api/test/factories/todo.factory.tsを以下で作成する
+
+```ts
+import { Factory } from 'typeorm-factory';
+import { Todo } from './../../src/entities/todo.entity';
+
+export const todoFactory = new Factory(Todo)
+  .attr('title', 'test title')
+  .attr('createdAt', '1997-07-07 00:00:00')
+  .attr('updatedAt', '1997-07-07 00:00:00');
+
+```
+
+- テスト実行時にDBにfixtureデータを投入する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+// ...省略
+import { getConnection } from 'typeorm'; //追加
+import { todoFactory } from './../factories/todo.factory'; // 追加
+
+describe('TodoController (e2e)', () => {
+  // ...省略
+  // テスト実行前に実行する
+  beforeEach(async () => {
+    await todoFactory.create();
+  });
+
+  // テスト実行後に実行する
+  afterEach(async () => {
+    // データクリア
+    const entities = getConnection().entityMetadatas;
+    for (const entity of entities) {
+      const repository = getConnection().getRepository(entity.name);
+      await repository.clear();
+    }
+  });
+  // ...省略
+});
+```
+
+ついでにテストごとにデータはリセットするように
+
+- テストを修正する
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+describe('作成テスト', () => {
+  it('OK /todo (POST)', async () => {
+    // ...省略
+    // 追加されたデータの確認
+    expect(res.body.data.id).toEqual(2); // 1→2変更
+    // ...省略
+  });
+  // ...省略
+});
+
+describe('一覧テスト', () => {
+  it('OK /todo (GET)', async () => {
+    // 取得用データ作ってたとこまるっと削除
+    const res = await findAll();
+    // ...省略
+
+    // データが取得できていることの確認
+    const todo = res.body.data.pop();
+    expect(todo.id).toEqual(1); // fixtureのデータに変更
+    expect(todo.title).toEqual('test title'); // fixtureのデータに変更
+    expect(todo.description).toBeNull();
+    expect(todo.completedAt).toBeNull();
+    expect(Dayjs(todo.createdAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+      '1997-07-07 00:00:00', // fixtureのデータに変更
+    );
+    expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+      '1997-07-07 00:00:00', // fixtureのデータに変更
+    );
+  });
+});
+
+describe('1件取得テスト', () => {
+  it('OK /todo/:id (GET)', async () => {
+    // 取得用データ作ってたとこまるっと削除
+    const res = await findOne(1); // fixtureのデータに変更
+    // ...省略
+
+    // 登録されたデータが取得できていることの確認
+    const todo = res.body.data;
+    expect(todo.id).toEqual(1); // fixtureのデータに変更
+    expect(todo.title).toEqual('test title'); // fixtureのデータに変更
+    expect(todo.description).toBeNull();
+    expect(todo.completedAt).toBeNull();
+    expect(Dayjs(todo.createdAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+      '1997-07-07 00:00:00', // fixtureのデータに変更
+    );
+    expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+      '1997-07-07 00:00:00', // fixtureのデータに変更
+    );
+  });
+  // ...省略
+});
+
+describe('編集テスト', () => {
+  it('OK /todo/:id (PATCH)', async () => {
+    // 編集用データ作ってたとこまるっと削除
+    // ちょっと止めてたのも削除
+    const res = await update(1, { // fixtureのデータに変更
+      title: 'update test title',
+      description: 'update test description',
+    });
+    // ...省略
+  });
+  // ...省略
+
+  it('NG(validation error) /todo/:id (PATCH)', async () => {
+    // 編集用データ作ってたとこまるっと削除
+    let res = await update(1, { // fixtureのデータに変更
+      title: 'update test title over',
+    });
+    // ...省略
+    res = await update(1, { // fixtureのデータに変更
+      title: 'update test title',
+      description: 'create test description ' + '0123456789'.repeat(50),
+    });
+    // ...省略
+  });
+});
+
+describe('削除テスト', () => {
+  it('OK /todo/:id (DELETE)', async () => {
+    // 削除用データ作ってたとこまるっと削除
+    const res = await deleteOne(1); // fixtureのデータに変更
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true);
+
+    // 削除されたので取得できないことの確認
+    const findRes = await findOne(1); // fixtureのデータに変更
+    // ステータスの確認
+    expect(findRes.status).toEqual(404);
+  });
+  // ...省略
+});
+```
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+通ったらヨシ！
