@@ -21,7 +21,7 @@ describe('TodoController (e2e)', () => {
     app = moduleFixture.createNestApplication();
 
     // DTOによるバリデーションを有効にする
-    app.useGlobalPipes(new ValidationPipe());
+    app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
     // 例外フィルターを有効にする
     app.useGlobalFilters(new AllExceptionsFilter());
@@ -38,7 +38,7 @@ describe('TodoController (e2e)', () => {
 
   // テスト実行前に実行する
   beforeEach(async () => {
-    await todoFactory.create();
+    await todoFactory.create({ title: 'test title' });
   });
 
   // テスト実行後に実行する
@@ -65,10 +65,15 @@ describe('TodoController (e2e)', () => {
 
   /**
    * @summary データの一覧を取得する
+   * @param page: number
    * @returns request.Response
    */
-  const findAll = async () => {
-    return await request(app.getHttpServer()).get('/todo/');
+  const findAll = async (page = null) => {
+    let api = '/todo/?orderBy=id&order=ASC';
+    if (page) {
+      api += '&page=' + page;
+    }
+    return await request(app.getHttpServer()).get(api);
   };
 
   /**
@@ -169,6 +174,7 @@ describe('TodoController (e2e)', () => {
 
   describe('一覧テスト', () => {
     it('OK /todo (GET)', async () => {
+      await todoFactory.createList(20);
       const res = await findAll();
 
       // ステータスの確認
@@ -177,9 +183,10 @@ describe('TodoController (e2e)', () => {
       expect(res.body.success).toEqual(true);
       // レスポンス内のデータの確認
       expect(Array.isArray(res.body.data)).toEqual(true);
+      expect(res.body.data.length).toEqual(10);
 
       // データが取得できていることの確認
-      const todo = res.body.data.pop();
+      let todo = res.body.data.shift();
       expect(todo.id).toEqual(1);
       expect(todo.title).toEqual('test title');
       expect(todo.description).toBeNull();
@@ -190,6 +197,108 @@ describe('TodoController (e2e)', () => {
       expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
         '1997-07-07 00:00:00',
       );
+
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(2);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(3);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(4);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(5);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(6);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(7);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(8);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(9);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(10);
+
+      const pagination = res.body.pagination;
+      expect(pagination.currentPage).toEqual(1);
+      expect(pagination.itemCount).toEqual(21);
+      expect(pagination.pageCount).toEqual(3);
+      expect(pagination.hasPrevPage).toEqual(false);
+      expect(pagination.hasNextPage).toEqual(true);
+    });
+
+    it('OK /todo?page=middlepage (GET)', async () => {
+      await todoFactory.createList(20);
+      const res = await findAll(2);
+
+      // ステータスの確認
+      expect(res.status).toEqual(200);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(true);
+      // レスポンス内のデータの確認
+      expect(Array.isArray(res.body.data)).toEqual(true);
+      expect(res.body.data.length).toEqual(10);
+
+      // データが取得できていることの確認
+      let todo = res.body.data.shift();
+      expect(todo.id).toEqual(11);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(12);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(13);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(14);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(15);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(16);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(17);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(18);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(19);
+      todo = res.body.data.shift();
+      expect(todo.id).toEqual(20);
+
+      const pagination = res.body.pagination;
+      expect(pagination.currentPage).toEqual(2);
+      expect(pagination.itemCount).toEqual(21);
+      expect(pagination.pageCount).toEqual(3);
+      expect(pagination.hasPrevPage).toEqual(true);
+      expect(pagination.hasNextPage).toEqual(true);
+    });
+
+    it('OK /todo?page=lastpage (GET)', async () => {
+      await todoFactory.createList(20);
+      const res = await findAll(3);
+
+      // ステータスの確認
+      expect(res.status).toEqual(200);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(true);
+      // レスポンス内のデータの確認
+      expect(Array.isArray(res.body.data)).toEqual(true);
+      expect(res.body.data.length).toEqual(1);
+
+      // データが取得できていることの確認
+      const todo = res.body.data.shift();
+      expect(todo.id).toEqual(21);
+
+      const pagination = res.body.pagination;
+      expect(pagination.currentPage).toEqual(3);
+      expect(pagination.itemCount).toEqual(21);
+      expect(pagination.pageCount).toEqual(3);
+      expect(pagination.hasPrevPage).toEqual(true);
+      expect(pagination.hasNextPage).toEqual(false);
+    });
+
+    it('NG(not found) /todo/?page=overpage (GET)', async () => {
+      const res = await findAll(2);
+      // ステータスの確認
+      expect(res.status).toEqual(404);
+      // レスポンス内の成否の確認
+      expect(res.body.success).toEqual(false);
+      // エラーメッセージの確認
+      expect(res.body.error.message).toEqual('データの取得に失敗しました');
     });
   });
 

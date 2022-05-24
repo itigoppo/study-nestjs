@@ -6,9 +6,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 import { TodoService } from './todo.service';
 import { CreateTodoDto, UpdateTodoDto } from './todo.dto';
+import { PaginationOptionsDto } from './../dtos/pagination.dto';
 
 @Controller('todo')
 export class TodoController {
@@ -20,8 +22,8 @@ export class TodoController {
   }
 
   @Get()
-  async findAll() {
-    return await this.service.findAll();
+  async findAll(@Query() params: PaginationOptionsDto) {
+    return await this.service.findAll(params);
   }
 
   @Get(':id')

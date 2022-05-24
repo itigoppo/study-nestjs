@@ -3475,3 +3475,408 @@ npm run test:e2e
 ```
 
 通ったらヨシ！
+
+# step23: 一覧はページャーあるといいよね
+
+- 受け取りパラメータ用のDTOを作る
+
+/api/src/dtos/pagination.dto.tsを以下で作成する
+
+```ts
+import { IsEnum, IsInt, IsOptional, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+
+export enum Order {
+  ASC = 'ASC',
+  DESC = 'DESC',
+}
+
+export class PaginationOptionsDto {
+  @IsEnum(Order)
+  @IsOptional()
+  readonly order?: Order = Order.ASC;
+
+  @IsOptional()
+  readonly orderBy?: string = 'updatedAt';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  readonly page?: number = 1;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(50)
+  @IsOptional()
+  readonly limit?: number = 10;
+
+  get offset(): number {
+    return (this.page - 1) * this.limit;
+  }
+}
+```
+
+/api/src/main.tsを以下で編集する
+
+```ts
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe } from '@nestjs/common';
+import { AllExceptionsFilter } from './filters/all-exceptions.filter';
+
+async function bootstrap() {
+  const app = await NestFactory.create(AppModule);
+  app.useGlobalPipes(new ValidationPipe({ transform: true })); // 変更
+  app.useGlobalFilters(new AllExceptionsFilter());
+  await app.listen(3000);
+  if (module.hot) {
+    module.hot.accept();
+    module.hot.dispose(() => app.close());
+  }
+}
+bootstrap();
+
+```
+
+- パラメータを受け取れるようにする
+
+/api/src/todo/todo.controller.tsのアクションを変更する
+
+```ts
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common'; // Queryを追加
+import { PaginationOptionsDto } from './../dtos/pagination.dto'; // 追加
+export class TodoController {
+  // ...省略
+  @Get()
+  async findAll(@Query() params: PaginationOptionsDto) {
+    return await this.service.findAll(params);
+  }
+  // ...省略
+}
+```
+
+/api/src/todo/todo.service.tsの全件取得のメソッドを編集する
+
+```ts
+import { PaginationOptionsDto } from './../dtos/pagination.dto'; // 追加
+export class TodoService {
+  // ...省略
+  async findAll(pagination: PaginationOptionsDto) {
+    const queryBuilder = this.todoRepository.createQueryBuilder('todo');
+
+    queryBuilder
+      .orderBy('todo.' + pagination.orderBy, pagination.order)
+      .take(pagination.limit)
+      .skip(pagination.offset);
+    const itemCount = await queryBuilder.getCount();
+    const { entities } = await queryBuilder.getRawAndEntities();
+
+    if (isEmpty(entities)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    return {
+      success: true,
+      data: entities,
+    };
+  }
+  // ...省略
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+http://localhost:3000/todo/?limit=2 にブラウザでアクセス
+
+登録データのうち更新日の新しいデータが2件返ってきたらヨシ！
+
+指定できるパラメーターは以下
+
+orderBy=[カラム名] / order=[DESC/ASC] / limit=[number] / page=[number]
+
+- レスポンスにページャー情報をつける
+
+/api/src/dtos/pagination.dto.tsを以下で編集する
+
+```ts
+// ...省略
+export class PaginationDto {
+  readonly pageCount: number;
+  readonly currentPage: number;
+  readonly hasNextPage: boolean;
+  readonly hasPrevPage: boolean;
+  readonly itemCount: number;
+  readonly limit: number;
+
+  constructor(itemCount: number, options: PaginationOptionsDto) {
+    this.currentPage = options.page;
+    this.limit = options.limit;
+    this.itemCount = itemCount;
+    this.pageCount = Math.ceil(this.itemCount / this.limit);
+    this.hasPrevPage = this.currentPage > 1;
+    this.hasNextPage = this.currentPage < this.pageCount;
+  }
+}
+```
+
+/api/src/todo/todo.service.tsの全件取得のメソッドを編集する
+
+```ts
+import { PaginationDto, PaginationOptionsDto } from './../dtos/pagination.dto'; // PaginationDtoを追加
+export class TodoService {
+  // ...省略
+  async findAll(pagination: PaginationOptionsDto) {
+    // ...省略
+
+    return {
+      success: true,
+      data: entities,
+      pagination: new PaginationDto(itemCount, pagination), // 追加
+    };
+  }
+  // ...省略
+}
+```
+
+- アクセスしてみる
+
+サーバーを起動する
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+http://localhost:3000/todo/?limit=2 にブラウザでアクセス
+
+以下のように登録データが返ってきたらヨシ！
+
+```json
+{
+  "success": true,
+  "data": [
+    // ...省略
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "limit": 2,
+    "itemCount": 11,
+    "pageCount": 6,
+    "hasPrevPage": false,
+    "hasNextPage": true
+  }
+}
+```
+
+- テストを修正する
+
+まずはテストデータをわかりやすくするのにタイトルを連番に
+
+/api/test/factories/todo.factory.tsを以下で編集する
+
+```ts
+import { Factory } from 'typeorm-factory';
+import { Todo } from './../../src/entities/todo.entity';
+
+export const todoFactory = new Factory(Todo)
+  .sequence('title', (i: number) => `test title${i}`) // 変更
+  .attr('createdAt', '1997-07-07 00:00:00')
+  .attr('updatedAt', '1997-07-07 00:00:00');
+```
+
+/api/test/todo/todo.e2e-spec.tsを以下で編集する
+
+```ts
+// 全テスト開始前に実行する
+beforeAll(async () => {
+  // ...省略
+
+  // DTOによるバリデーションを有効にする
+  app.useGlobalPipes(new ValidationPipe({ transform: true })); // 変更
+
+  // ...省略
+});
+```
+
+transformを有効化
+
+```ts
+// テスト実行前に実行する
+beforeEach(async () => {
+  await todoFactory.create({ title: 'test title' }); // 変更
+});
+```
+
+タイトルを連番化したことで他のテストに影響でるから1件目のタイトルは固定で作るように
+
+```ts
+/**
+ * @summary データの一覧を取得する
+ * @param page: number
+ * @returns request.Response
+ */
+const findAll = async (page = null) => {
+  let api = '/todo/?orderBy=id&order=ASC';
+  if (page) {
+    api += '&page=' + page;
+  }
+  return await request(app.getHttpServer()).get(api);
+};
+```
+
+ソート対象カラムをidにかえてページを指定できるように
+
+```ts
+describe('一覧テスト', () => {
+  it('OK /todo (GET)', async () => {
+    await todoFactory.createList(20); // 追加
+    const res = await findAll();
+    // ...省略
+
+    // レスポンス内のデータの確認
+    expect(Array.isArray(res.body.data)).toEqual(true);
+    expect(res.body.data.length).toEqual(10); // 追加
+
+    // データが取得できていることの確認
+    let todo = res.body.data.shift(); // 変更
+
+    // ...省略
+
+    expect(Dayjs(todo.updatedAt).format('YYYY-MM-DD HH:mm:ss')).toEqual(
+      '1997-07-07 00:00:00',
+    );
+
+    // ↓ 追加
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(2);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(3);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(4);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(5);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(6);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(7);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(8);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(9);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(10);
+
+    const pagination = res.body.pagination;
+    expect(pagination.currentPage).toEqual(1);
+    expect(pagination.itemCount).toEqual(21);
+    expect(pagination.pageCount).toEqual(3);
+    expect(pagination.hasPrevPage).toEqual(false);
+    expect(pagination.hasNextPage).toEqual(true);
+    // ↑ 追加
+  });
+
+  // ↓追加
+  it('OK /todo?page=middlepage (GET)', async () => {
+    await todoFactory.createList(20);
+    const res = await findAll(2);
+
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true);
+    // レスポンス内のデータの確認
+    expect(Array.isArray(res.body.data)).toEqual(true);
+    expect(res.body.data.length).toEqual(10);
+
+    // データが取得できていることの確認
+    let todo = res.body.data.shift();
+    expect(todo.id).toEqual(11);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(12);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(13);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(14);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(15);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(16);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(17);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(18);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(19);
+    todo = res.body.data.shift();
+    expect(todo.id).toEqual(20);
+
+    const pagination = res.body.pagination;
+    expect(pagination.currentPage).toEqual(2);
+    expect(pagination.itemCount).toEqual(21);
+    expect(pagination.pageCount).toEqual(3);
+    expect(pagination.hasPrevPage).toEqual(true);
+    expect(pagination.hasNextPage).toEqual(true);
+  });
+
+  it('OK /todo?page=lastpage (GET)', async () => {
+    await todoFactory.createList(20);
+    const res = await findAll(3);
+
+    // ステータスの確認
+    expect(res.status).toEqual(200);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(true);
+    // レスポンス内のデータの確認
+    expect(Array.isArray(res.body.data)).toEqual(true);
+    expect(res.body.data.length).toEqual(1);
+
+    // データが取得できていることの確認
+    const todo = res.body.data.shift();
+    expect(todo.id).toEqual(21);
+
+    const pagination = res.body.pagination;
+    expect(pagination.currentPage).toEqual(3);
+    expect(pagination.itemCount).toEqual(21);
+    expect(pagination.pageCount).toEqual(3);
+    expect(pagination.hasPrevPage).toEqual(true);
+    expect(pagination.hasNextPage).toEqual(false);
+  });
+
+  it('NG(not found) /todo/?page=overpage (GET)', async () => {
+    const res = await findAll(2);
+    // ステータスの確認
+    expect(res.status).toEqual(404);
+    // レスポンス内の成否の確認
+    expect(res.body.success).toEqual(false);
+    // エラーメッセージの確認
+    expect(res.body.error.message).toEqual('データの取得に失敗しました');
+  });
+  // ↑追加
+
+});
+```
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+通ったらヨシ！

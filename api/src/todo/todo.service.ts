@@ -10,6 +10,7 @@ import Dayjs from '../util/dayjs';
 import { CreateTodoDto, UpdateTodoDto } from './todo.dto';
 import { diff } from 'just-diff';
 import isEmpty from 'just-is-empty';
+import { PaginationDto, PaginationOptionsDto } from './../dtos/pagination.dto';
 
 @Injectable()
 export class TodoService {
@@ -33,18 +34,25 @@ export class TodoService {
     };
   }
 
-  async findAll() {
-    return await this.todoRepository
-      .find()
-      .catch((e) => {
-        throw new InternalServerErrorException('一覧の取得に失敗しました');
-      })
-      .then(function (value) {
-        return {
-          success: true,
-          data: value,
-        };
-      });
+  async findAll(pagination: PaginationOptionsDto) {
+    const queryBuilder = this.todoRepository.createQueryBuilder('todo');
+
+    queryBuilder
+      .orderBy('todo.' + pagination.orderBy, pagination.order)
+      .take(pagination.limit)
+      .skip(pagination.offset);
+    const itemCount = await queryBuilder.getCount();
+    const { entities } = await queryBuilder.getRawAndEntities();
+
+    if (isEmpty(entities)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    return {
+      success: true,
+      data: entities,
+      pagination: new PaginationDto(itemCount, pagination),
+    };
   }
 
   async findOne(id: number) {
