@@ -4149,3 +4149,134 @@ npm run test
 ```
 
 通ったらヨシ！
+
+# step25: TypeORMのcatch()でやるとエラー情報握りつぶしてるっぽいから辞めさせる
+
+catchしたエクセプションをちゃんと適切にごねらなかったせいだけどフィルター側でやってるので十分なのでそっちに託します
+
+/api/src/todo/todo.service.tsを以下でそれぞれ編集する
+
+- create
+
+```ts
+export class TodoService {
+  // ...省略
+  async create(todo: CreateTodoDto) {
+    const now = Dayjs();
+    todo.createdAt = now.tz().format();
+    todo.updatedAt = now.tz().format();
+    await this.todoRepository.save(todo);
+
+    return {
+      success: true,
+      data: todo as Todo,
+    };
+  }
+}
+```
+
+ついでにinsert()からsave()に変更
+
+- findOne
+
+```ts
+export class TodoService {
+  // ...省略
+  async findOne(id: number) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    const entity = await this.todoRepository.findOne({
+      id: id,
+    });
+
+    if (!entity) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    return {
+      success: true,
+      data: entity,
+    };
+  }
+}
+```
+
+- update
+
+```ts
+export class TodoService {
+  // ...省略
+  async update(id: number, todo: UpdateTodoDto) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+    const original = await this.findOne(id);
+    let change = { ...original.data, ...todo };
+
+    if (isEmpty(diff(change, original.data))) {
+      return {
+        success: true,
+        data: change as Todo,
+        isDirty: false,
+        dirty: {},
+        original: original.data,
+      };
+    }
+    change.updatedAt = Dayjs().tz().format();
+
+    await this.todoRepository.save(change);
+    const diffData = diff(original.data, change);
+
+    const dirties = {};
+    for (const element of diffData) {
+      if (element.op === 'replace') {
+        dirties[element.path[0]] = element.value;
+      }
+    }
+
+    return {
+      success: true,
+      data: change as Todo,
+      isDirty: !isEmpty(diffData),
+      dirty: dirties,
+      original: original.data,
+    };
+  }
+}
+```
+
+ついでにupdate()からsave()に変更
+
+- delete
+
+```ts
+export class TodoService {
+  // ...省略
+  async delete(id: number) {
+    if (Number.isNaN(id)) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+    const original = await this.findOne(id);
+    const todo = await this.todoRepository.remove(original.data);
+
+    return {
+      success: true,
+      data: todo,
+    };
+  }
+}
+```
+
+ついでにdelete()からremove()に変更
+
+- デグレチェック
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+npm run test
+```
+
+通ったらヨシ！

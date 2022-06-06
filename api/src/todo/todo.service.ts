@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Todo } from '../entities/todo.entity';
 import { Repository } from 'typeorm';
@@ -23,10 +19,7 @@ export class TodoService {
     const now = Dayjs();
     todo.createdAt = now.tz().format();
     todo.updatedAt = now.tz().format();
-
-    await this.todoRepository.insert(todo).catch((e) => {
-      throw new InternalServerErrorException('データの作成に失敗しました');
-    });
+    await this.todoRepository.save(todo);
 
     return {
       success: true,
@@ -60,23 +53,18 @@ export class TodoService {
       throw new NotFoundException('データの取得に失敗しました');
     }
 
-    return await this.todoRepository
-      .findOne({
-        id: id,
-      })
-      .catch((e) => {
-        throw new InternalServerErrorException('データの取得に失敗しました');
-      })
-      .then(function (value) {
-        if (!value) {
-          throw new NotFoundException('データの取得に失敗しました');
-        }
+    const entity = await this.todoRepository.findOne({
+      id: id,
+    });
 
-        return {
-          success: true,
-          data: value,
-        };
-      });
+    if (!entity) {
+      throw new NotFoundException('データの取得に失敗しました');
+    }
+
+    return {
+      success: true,
+      data: entity,
+    };
   }
 
   async update(id: number, todo: UpdateTodoDto) {
@@ -95,38 +83,25 @@ export class TodoService {
         original: original.data,
       };
     }
+    change.updatedAt = Dayjs().tz().format();
 
-    todo.updatedAt = Dayjs().tz().format();
+    await this.todoRepository.save(change);
+    const diffData = diff(original.data, change);
 
-    return await this.todoRepository
-      .update(
-        {
-          id: id,
-        },
-        todo,
-      )
-      .catch((e) => {
-        throw new InternalServerErrorException('データの更新に失敗しました');
-      })
-      .then(function (value) {
-        change = { ...original.data, ...todo };
-        const diffData = diff(original.data, change);
+    const dirties = {};
+    for (const element of diffData) {
+      if (element.op === 'replace') {
+        dirties[element.path[0]] = element.value;
+      }
+    }
 
-        const dirties = {};
-        for (const element of diffData) {
-          if (element.op === 'replace') {
-            dirties[element.path[0]] = element.value;
-          }
-        }
-
-        return {
-          success: true,
-          data: change as Todo,
-          isDirty: !isEmpty(diffData),
-          dirty: dirties,
-          original: original.data,
-        };
-      });
+    return {
+      success: true,
+      data: change as Todo,
+      isDirty: !isEmpty(diffData),
+      dirty: dirties,
+      original: original.data,
+    };
   }
 
   async delete(id: number) {
@@ -134,19 +109,11 @@ export class TodoService {
       throw new NotFoundException('データの取得に失敗しました');
     }
     const original = await this.findOne(id);
+    const todo = await this.todoRepository.remove(original.data);
 
-    return await this.todoRepository
-      .delete({
-        id: id,
-      })
-      .catch((e) => {
-        throw new InternalServerErrorException('データの削除に失敗しました');
-      })
-      .then(function (value) {
-        return {
-          success: true,
-          data: original.data,
-        };
-      });
+    return {
+      success: true,
+      data: todo,
+    };
   }
 }
