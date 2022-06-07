@@ -5,6 +5,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TypeOrmConfigService } from './config/database.service';
 import { TodoModule } from './todo/todo.module';
+import { UsersModule } from './users/users.module';
+import { User } from './entities/user.entity';
+import { UsersService } from './users/users.service';
 
 let envFilePath = './src/config/.env';
 if (process.env.NODE_ENV) {
@@ -21,9 +24,11 @@ if (process.env.NODE_ENV) {
       useClass: TypeOrmConfigService,
       inject: [ConfigService],
     }),
+    TypeOrmModule.forFeature([User]),
     TodoModule,
+    UsersModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, UsersService],
 })
 export class AppModule {}

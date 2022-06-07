@@ -4480,3 +4480,383 @@ npm run test
 ```
 
 通ったらヨシ！
+
+# step27: ユーザー制に変えるのでサインアップ機能をつける
+
+- ユーザーテーブルのentityを作成する
+
+/api/src/entities/user.entity.tsを以下で作成する
+
+カラムは一旦ログイン情報あったらそれでええ
+
+```ts
+import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn()
+  readonly id: number;
+
+  @Column({
+    length: 20,
+    unique: true,
+    nullable: false,
+  })
+  username: string;
+
+  @Column({
+    length: 255,
+    unique: true,
+    nullable: false,
+  })
+  email: string;
+
+  @Column({
+    length: 255,
+    nullable: false,
+  })
+  password: string;
+
+  @Column('datetime', {
+    name: 'created_at',
+    precision: 0,
+    default: null,
+    nullable: false,
+  })
+  createdAt: string | null = null;
+
+  @Column('datetime', {
+    name: 'updated_at',
+    precision: 0,
+    default: null,
+    nullable: false,
+  })
+  updatedAt: string | null = null;
+
+  @Column('datetime', {
+    name: 'deleted_at',
+    precision: 0,
+    default: null,
+    nullable: true,
+  })
+  deletedAt: string | null = null;
+}
+```
+
+- マイグレーションを作成する
+
+entityからマイグレーションを作ってくれるのでビルドしてどん！
+
+```shell
+docker-compose exec api sh
+npm run migration create-users
+
+# No changes in database schema were found - cannot generate a migration. To create a new empty migration use "typeorm migration:create" command
+```
+
+…ファイルできん
+
+/api/src/config/database.config.tsのentitiesをHMR以前にちょっと戻してみる
+
+```ts
+@Injectable()
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    return {
+      // ...省略
+      entities: ['dist/entities/**/*.js'], //変更
+      // ...省略
+    };
+  }
+}
+```
+
+```shell
+docker-compose exec api sh
+npm run migration create-users
+
+# Migration /api/src/migrations/1654501081532-create-users.ts has been generated successfully.
+```
+
+…できた
+
+- マイグレーション作成時にentityがよめてないのでなんとかする
+
+HMRにするのに変えたentitiesの設定と相性が悪い
+
+/api/src/config/database.config.tsを以下で編集する
+
+```ts
+@Injectable()
+export class TypeOrmConfigService implements TypeOrmOptionsFactory {
+  createTypeOrmOptions(): TypeOrmModuleOptions {
+    const configService = new ConfigService();
+    // ↓追加
+    let entities = getMetadataArgsStorage().tables.map((tbl) => tbl.target);
+    if (configService.get<string>('MIGRATION') === 'true') {
+      entities = ['dist/entities/**/*.js'];
+    }
+    // ↑追加
+
+    return {
+      // ...省略
+      entities: entities, //変更
+      // ...省略
+    };
+  }
+}
+```
+
+/api/package.jsonを以下で編集する
+
+```ts
+{
+  // ...省略
+  "scripts": {
+    // ...省略
+    "migration": "npm run build && cross-env MIGRATION=true npm run typeorm migration:generate -- -d src/migrations -n " // 変更
+  },
+  // ...省略
+}
+```
+
+さっきできたファイルを削除してからもう1回作ってみる
+
+```shell
+docker-compose exec api sh
+rm /api/src/migrations/1654501081532-create-users.ts
+npm run migration create-users
+
+# Migration /api/src/migrations/1654504536978-create-users.ts has been generated successfully.
+```
+
+できたねやったね
+
+- マイグレーションを実行する
+
+できたファイルを一通り問題ないか確認したら実行
+
+```shell
+docker-compose exec api sh
+npm run migrations:run
+```
+
+- サクッとユーザー作成できるようにしちゃう
+
+```shell
+docker-compose exec api sh
+npx nest g mo users
+npx nest g s users
+```
+
+/api/src/users/users.module.tsを以下で編集する
+
+```ts
+import { Module } from '@nestjs/common';
+import { UsersService } from './users.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { User } from '../entities/user.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([User])],
+  providers: [UsersService],
+})
+export class UsersModule {}
+```
+
+/api/src/users/user.dto.tsを以下で作成する
+
+```ts
+import {
+  IsAlphanumeric,
+  IsEmail,
+  IsNotEmpty,
+  IsOptional,
+  Length,
+} from 'class-validator';
+import { Transform, TransformFnParams } from 'class-transformer';
+
+export class CreateUserDto {
+  // 必須
+  @IsNotEmpty()
+  // 型指定
+  @IsAlphanumeric()
+  // 20文字以内
+  @Length(1, 20, { message: '$constraint2文字以下で入力してください' })
+  // 前後スペースのトリム
+  @Transform(({ value }: TransformFnParams) => value?.trim())
+  username: string;
+
+  // 必須
+  @IsNotEmpty()
+  // 型指定
+  @IsEmail()
+  email: string;
+
+  // 必須
+  @IsNotEmpty()
+  // 型指定
+  @IsAlphanumeric()
+  // 8-50文字以内
+  @Length(8, 50, { message: '$constraint2文字以下で入力してください' })
+  // 前後スペースのトリム
+  @Transform(({ value }: TransformFnParams) => value?.trim())
+  password: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  createdAt: string;
+
+  // 指定がなくてもOK
+  @IsOptional()
+  updatedAt: string;
+}
+
+```
+
+/api/src/users/users.service.tsを以下で編集する
+
+```ts
+import { ConflictException, Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { User } from '../entities/user.entity';
+import { Repository } from 'typeorm';
+import Dayjs from '../util/dayjs';
+import { CreateUserDto } from './user.dto';
+import isEmpty from 'just-is-empty';
+
+@Injectable()
+export class UsersService {
+  constructor(
+    @InjectRepository(User)
+    private readonly usersRepository: Repository<User>,
+  ) {}
+
+  async create(user: CreateUserDto) {
+    const duplicateEntities = await this.usersRepository.find({
+      where: [{ username: user.username }, { email: user.email }],
+    });
+
+    if (!isEmpty(duplicateEntities)) {
+      throw new ConflictException('登録済みです');
+    }
+
+    const now = Dayjs();
+    user.createdAt = now.tz().format();
+    user.updatedAt = now.tz().format();
+    const entity = await this.usersRepository.save(user);
+
+    return {
+      success: true,
+      data: entity,
+    };
+  }
+}
+```
+
+/api/src/app.controller.tsを以下で編集する
+
+```ts
+import { Body, Controller, Get, Post } from '@nestjs/common'; // Body, Postを追加
+import { AppService } from './app.service';
+import { UsersService } from './users/users.service'; // 追加
+import { CreateUserDto } from './users/user.dto'; // 追加
+
+@Controller()
+export class AppController {
+  constructor(
+    private readonly appService: AppService,
+    private readonly usersService: UsersService, // 追加
+  ) {}
+
+  @Get()
+  getHello(): string {
+    return this.appService.getHello();
+  }
+
+  // ↓追加
+  @Post('/signup')
+  async create(@Body() bodies: CreateUserDto) {
+    return await this.usersService.create(bodies);
+  }
+  // ↑追加
+}
+
+```
+
+- パスワードの平文保存良くない
+
+ハッシュ用ライブラリをいれる
+
+```shell
+npm install --save bcrypt
+npm install --save-dev @types/bcrypt
+```
+
+/api/src/entities/user.entity.tsを以下で編集する
+
+```ts
+import bcrypt = require('bcrypt'); // 追加
+
+export class User {
+  // ...省略
+  @Column({
+    length: 255,
+    nullable: false,
+    // ↓追加
+    transformer: {
+      to: (raw: string) => bcrypt.hashSync(raw, 5),
+      from: (hashed: string) => hashed,
+    },
+    // ↑追加
+  })
+  password: string;
+  // ...省略
+}
+```
+
+レスポンスに平文で入っちゃうので消す
+
+/api/src/users/users.service.tsを以下で編集する
+
+```ts
+export class UsersService {
+  async create(user: CreateUserDto) {
+    // ...省略
+    const entity = await this.usersRepository.save(user);
+    entity.password = null; // 追加
+    // ...省略
+  }
+}
+```
+
+- アクセスしてみる
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/signup -X POST -d "username=testuser&email=test@test.example&password=testpassword"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "testuser",
+    "email": "test@test.example",
+    "password": null,
+    "createdAt": "2022-06-07T07:46:43.000Z",
+    "updatedAt": "2022-06-07T07:46:43.000Z",
+    "deletedAt": null,
+    "id": 1
+  }
+}
+```
+
+ユーザーデータできたのでヨシ！

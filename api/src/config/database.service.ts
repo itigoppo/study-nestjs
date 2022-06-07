@@ -7,6 +7,11 @@ import { getMetadataArgsStorage } from 'typeorm';
 export class TypeOrmConfigService implements TypeOrmOptionsFactory {
   createTypeOrmOptions(): TypeOrmModuleOptions {
     const configService = new ConfigService();
+    let entities = getMetadataArgsStorage().tables.map((tbl) => tbl.target);
+    if (configService.get<string>('MIGRATION') === 'true') {
+      entities = ['dist/entities/**/*.js'];
+    }
+
     return {
       type: 'mysql' as const,
       host: configService.get<string>('DB_HOST'),
@@ -14,7 +19,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
       username: configService.get<string>('DB_USERNAME'),
       password: configService.get<string>('DB_PASSWORD'),
       database: configService.get<string>('DB_DATABASE'),
-      entities: getMetadataArgsStorage().tables.map((tbl) => tbl.target),
+      entities: entities,
       migrations: ['dist/migrations/**/*.js'],
       logging: configService.get<string>('NODE_ENV') === 'test' ? false : true,
       synchronize:
@@ -22,7 +27,7 @@ export class TypeOrmConfigService implements TypeOrmOptionsFactory {
       dropSchema:
         configService.get<string>('NODE_ENV') === 'test' ? true : false,
       cli: {
-        entitiesDir: './src/**',
+        entitiesDir: './src/entities',
         migrationsDir: './src/migrations',
       },
       keepConnectionAlive:
