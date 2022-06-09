@@ -4860,3 +4860,138 @@ curl http://localhost:3000/signup -X POST -d "username=testuser&email=test@test.
 ```
 
 ユーザーデータできたのでヨシ！
+
+# step28: 既存ユーザーチェックをServiceからRepositoryへ
+
+- リポジトリファイルを作成する
+
+/api/src/entities/repositories/user.repository.tsを以下で作成する
+
+```ts
+import { EntityRepository, Repository } from 'typeorm';
+import { User } from '../user.entity';
+
+@EntityRepository(User)
+export class UserRepository extends Repository<User> {
+  async duplicate(username: string, email: string) {
+    return this.find({
+      where: [{ username }, { email }],
+    });
+  }
+}
+```
+
+- リポジトリを読み込む
+
+/api/src/users/users.module.tsを以下で編集する
+
+```ts
+import { User } from '../entities/user.entity'; // 削除
+import { UserRepository } from '../entities/repositories/user.repository'; // 追加
+
+@Module({
+  imports: [TypeOrmModule.forFeature([UserRepository])], // User→UserRepository変更
+  controllers: [UsersController],
+  providers: [UsersService],
+})
+export class UsersModule {}
+
+```
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+import { User } from '../entities/user.entity'; // 削除
+import { UserRepository } from '../entities/repositories/user.repository'; // 追加
+
+@Module({
+  imports: [
+    // ...省略
+    TypeOrmModule.forFeature([UserRepository]),// User→UserRepository変更
+    // ...省略
+  ],
+  // ...省略
+})
+export class AppModule {}
+
+```
+
+/api/src/users/users.service.tsを以下で編集する
+
+```ts
+import { User } from '../entities/user.entity'; // 削除
+import { Repository } from 'typeorm'; // 削除
+import { UserRepository } from '../entities/repositories/user.repository'; // 追加
+
+@Injectable()
+export class UsersService {
+  constructor(
+    @InjectRepository(UserRepository) // User→UserRepository変更
+    private readonly usersRepository: UserRepository, // User→UserRepository変更
+  ) {}
+
+  async create(user: CreateUserDto) {
+    // ↓削除
+    const duplicateEntities = await this.usersRepository.find({
+      where: [{ username: user.username }, { email: user.email }],
+    });
+    // ↑削除
+
+    if (!isEmpty(await this.usersRepository.duplicate(user.username, user.email))) { // 変更
+      throw new ConflictException('登録済みです');
+    }
+
+    // ...省略
+  }
+}
+```
+
+- アクセスしてみる
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/signup -X POST -d "username=testuser&email=test@test.example&password=testpassword"
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-06-09T11:08:41+09:00",
+  "method": "POST",
+  "path": "/signup",
+  "error": {
+    "code": "HttpException",
+    "name": "Conflict",
+    "message": "登録済みです"
+  }
+}
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/signup -X POST -d "username=testuser2&email=test2@test.example&password=testpassword"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "testuser2",
+    "email": "test2@test.example",
+    "password": null,
+    "createdAt": "2022-06-09T02:12:56.000Z",
+    "updatedAt": "2022-06-09T02:12:56.000Z",
+    "deletedAt": null,
+    "id": 2
+  }
+}
+```
+
+重複は怒られたしユーザーデータもできたのでヨシ！
