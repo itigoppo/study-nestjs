@@ -4995,3 +4995,193 @@ curl http://localhost:3000/signup -X POST -d "username=testuser2&email=test2@tes
 ```
 
 重複は怒られたしユーザーデータもできたのでヨシ！
+
+# step29: サインインの前にまずはID/Passwordいれたらユーザーデータがとれる状態にする
+
+- いつものサクッとセット
+
+```shell
+docker-compose exec api sh
+npx nest g mo auth
+npx nest g s auth
+```
+
+/api/src/auth/auth.module.tsを以下で編集する
+
+```ts
+import { Module } from '@nestjs/common';
+import { AuthService } from './auth.service';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { UserRepository } from '../entities/repositories/user.repository';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([UserRepository])],
+  providers: [AuthService],
+})
+export class AuthModule {}
+```
+
+/api/src/auth/auth.dto.tsを以下で作成する
+
+```ts
+import { IsNotEmpty } from 'class-validator';
+
+export class SigninDto {
+  // 必須
+  @IsNotEmpty()
+  id: string;
+
+  // 必須
+  @IsNotEmpty()
+  password: string;
+}
+```
+
+/api/src/entities/repositories/user.repository.tsを以下で編集する
+
+```ts
+import { EntityRepository, IsNull, Repository } from 'typeorm'; // IsNull追加
+import { User } from '../user.entity';
+import bcrypt = require('bcrypt'); // 追加
+import { UnauthorizedException } from '@nestjs/common'; //　追加
+
+@EntityRepository(User)
+export class UserRepository extends Repository<User> {
+  // ...省略
+
+  async validateUser(id: string, password: string) {
+    const entity = await this.findOne({
+      where: [
+        { username: id, deletedAt: IsNull() },
+        { email: id, deletedAt: IsNull() },
+      ],
+    });
+
+    if (entity && (await bcrypt.compare(password, entity.password))) {
+      return entity;
+    }
+
+    throw new UnauthorizedException('IDまたはパスワードが違います');
+  }
+}
+```
+
+/api/src/auth/auth.service.tsを以下で編集する
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { UserRepository } from '../entities/repositories/user.repository';
+import { SigninDto } from './auth.dto';
+
+@Injectable()
+export class AuthService {
+  constructor(
+    @InjectRepository(UserRepository)
+    private readonly usersRepository: UserRepository,
+  ) {}
+
+  async signin(input: SigninDto) {
+    const user = await this.usersRepository.validateUser(
+      input.id,
+      input.password,
+    );
+
+    return {
+      success: true,
+      data: user,
+    };
+  }
+}
+```
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+import { AuthModule } from './auth/auth.module'; // 追加
+import { AuthService } from './auth/auth.service'; // 追加
+
+@Module({
+  imports: [
+    // ...省略
+    AuthModule, // 追加
+  ],
+  controllers: [AppController],
+  providers: [AppService, UsersService, AuthService], // AuthServiceを追加
+})
+export class AppModule {}
+
+```
+
+/api/src/app.controller.tsを以下で編集する
+
+```ts
+import { AuthService } from './auth/auth.service'; // 追加
+import { SigninDto } from './auth/auth.dto'; // 追加
+
+@Controller()
+export class AppController {
+  constructor(
+    private readonly appService: AppService,
+    private readonly usersService: UsersService,
+    private readonly authService: AuthService, // 追加
+  ) {}
+
+  // ...省略
+
+  // ↓追加
+  @Post('/signin')
+  async signin(@Body() bodies: SigninDto) {
+    return await this.authService.signin(bodies);
+  }
+  // ↑追加
+}
+
+```
+- アクセスしてみる
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/signin -X POST -d "id=testuser&password=testpassword"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "testuser",
+    "email": "test@test.example",
+    "password": "(ハッシュ化されたパスワード)",
+    "createdAt": "2022-06-07T07:46:43.000Z",
+    "updatedAt": "2022-06-07T07:46:43.000Z",
+    "deletedAt": null,
+    "id": 1
+  }
+}
+
+```shell
+curl http://localhost:3000/signin -X POST -d "id=test@test.example&password=testpassword"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "username": "testuser",
+    "email": "test@test.example",
+    "password": "(ハッシュ化されたパスワード)",
+    "createdAt": "2022-06-07T07:46:43.000Z",
+    "updatedAt": "2022-06-07T07:46:43.000Z",
+    "deletedAt": null,
+    "id": 1
+  }
+}
+```
+
+メールアドレス指定でもユーザーID指定でも該当ユーザーのデータがとれたのでヨシ！
