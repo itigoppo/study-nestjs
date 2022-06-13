@@ -5185,3 +5185,180 @@ curl http://localhost:3000/signin -X POST -d "id=test@test.example&password=test
 ```
 
 メールアドレス指定でもユーザーID指定でも該当ユーザーのデータがとれたのでヨシ！
+
+# step30: アクセストークンを返すようにする
+
+- 必要なライブラリを入れる
+
+```shell
+docker-compose exec api sh
+npm install --save @nestjs/jwt
+```
+
+- シークレットキーを設定する
+
+```shell
+docker-compose exec api sh
+node -e "console.log(require('crypto').randomBytes(256).toString('base64'));"
+```
+
+出力されたものをシークレットキーとして使います
+
+/api/src/config/.env.developmentを以下で編集する
+
+```text
+DB_HOST=db
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=root
+DB_DATABASE=study
+JWT_SECRET_KEY=[↑で作成したシークレットキーをいれる] // 追加
+JWT_EXPIRES_IN=1h // 追加
+```
+
+/api/src/config/.env.testを以下で編集する
+
+```text
+DB_HOST=db
+DB_PORT=3306
+DB_USERNAME=root
+DB_PASSWORD=root
+DB_DATABASE=test-study
+JWT_SECRET_KEY=secret //　追加
+JWT_EXPIRES_IN=60s // 追加
+```
+
+テスト側のキーはなんでもいいので適当に
+
+/api/src/config/auth.service.tsを以下で作成する
+
+```ts
+import { Injectable } from '@nestjs/common';
+import { JwtModuleOptions, JwtOptionsFactory } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+
+@Injectable()
+export class JwtConfigService implements JwtOptionsFactory {
+  createJwtOptions(): JwtModuleOptions {
+    const configService = new ConfigService();
+    return {
+      secret: configService.get<string>('JWT_SECRET_KEY'),
+      signOptions: {
+        expiresIn: configService.get<string>('JWT_EXPIRES_IN'),
+      },
+    };
+  }
+}
+```
+
+/api/src/auth/auth.module.tsを以下で編集する
+
+```ts
+import { JwtModule } from '@nestjs/jwt'; // 追加
+import { JwtConfigService } from './../config/auth.service'; // 追加
+
+@Module({
+  imports: [
+    // ...省略
+    // ↓追加
+    JwtModule.registerAsync({
+      useClass: JwtConfigService,
+    }),
+    // ↑追加
+  ],
+  // ...省略
+})
+export class AuthModule {}
+
+```
+
+/api/src/app.module.tsを以下で編集する
+
+```ts
+import { JwtModule } from '@nestjs/jwt'; // 追加
+import { JwtConfigService } from './config/auth.service'; // 追加
+
+@Module({
+  imports: [
+    // ...省略
+    // ↓追加
+    JwtModule.registerAsync({
+      useClass: JwtConfigService,
+    }),
+    // ↑追加
+  ],
+  // ...省略
+})
+export class AppModule {}
+
+```
+
+- サインインメソッドで認証用トークンを返すようにする
+
+/api/src/auth/interface/jwt-payload.interface.tsを以下で作成する
+
+```ts
+export interface JwtPayload {
+  id: number;
+  username: string;
+  exp?: number;
+}
+```
+
+IDとユーザー名を認証につかいます
+
+/api/src/auth/auth.service.tsを以下で編集する
+
+```ts
+import { JwtService } from '@nestjs/jwt'; // 追加
+import { JwtPayload } from './interface/jwt-payload.interface'; // 追加
+
+@Injectable()
+export class AuthService {
+  constructor(
+    @InjectRepository(UserRepository)
+    private readonly usersRepository: UserRepository,
+    private jwtService: JwtService, // 追加
+  ) {}
+
+  async signin(input: SigninDto) {
+    const user = await this.usersRepository.validateUser(
+      input.id,
+      input.password,
+    );
+
+    const payload: JwtPayload = { id: user.id, username: user.username };
+
+    return {
+      success: true,
+      data: {
+        access_token: await this.jwtService.signAsync(payload),
+      },
+    };
+  }
+}
+```
+
+- アクセスしてみる
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでPOSTアクセス
+
+```shell
+curl http://localhost:3000/signin -X POST -d "id=testuser&password=testpassword"
+```
+
+```json
+{
+  "success": true,
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwidXNlcm5hbWUiOiJ0ZXN0MSIsImlhdCI6MTY1NTExMjI3MiwiZXhwIjoxNjU1MTE1ODcyfQ.VMFI-SwdDOx9ui9menmQogLFzxI8_hLJCvruOcbpZVw"
+  }
+}
+```
+
+ユーザーデータからトークンに変わったのでヨシ！

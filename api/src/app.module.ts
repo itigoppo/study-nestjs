@@ -10,6 +10,8 @@ import { UserRepository } from './entities/repositories/user.repository';
 import { UsersService } from './users/users.service';
 import { AuthModule } from './auth/auth.module';
 import { AuthService } from './auth/auth.service';
+import { JwtModule } from '@nestjs/jwt';
+import { JwtConfigService } from './config/auth.service';
 
 let envFilePath = './src/config/.env';
 if (process.env.NODE_ENV) {
@@ -30,6 +32,9 @@ if (process.env.NODE_ENV) {
     TodoModule,
     UsersModule,
     AuthModule,
+    JwtModule.registerAsync({
+      useClass: JwtConfigService,
+    }),
   ],
   controllers: [AppController],
   providers: [AppService, UsersService, AuthService],
