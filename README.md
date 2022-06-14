@@ -5362,3 +5362,210 @@ curl http://localhost:3000/signin -X POST -d "id=testuser&password=testpassword"
 ```
 
 ユーザーデータからトークンに変わったのでヨシ！
+
+# step31: アクセストークンで認証する
+
+- 認証に使うライブラリを入れる
+
+```shell
+npm install --save @nestjs/passport passport passport-jwt
+npm install --save-dev @types/passport-jwt
+```
+
+- 認証ガードを有効にする
+
+```shell
+npx nest g co users
+```
+
+/api/src/users/users.controller.tsを以下で編集する
+
+```ts
+import { Controller, Get, Request, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+
+@Controller('users')
+export class UsersController {
+  @UseGuards(AuthGuard('jwt'))
+  @Get('profile')
+  getProfile(@Request() req) {
+    return req.user;
+  }
+}
+
+```
+
+- トークンをチェックする
+
+/api/src/auth/interface/auth-user.interface.tsを以下で作成する
+
+```ts
+import { User } from './../../entities/user.entity';
+
+export interface AuthUser {
+  user: User;
+  expires: number;
+  expiredAt: string;
+}
+```
+
+/api/src/auth/strategy/jwt.strategy.tsを以下で作成する
+
+```ts
+import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { PassportStrategy } from '@nestjs/passport';
+import { ExtractJwt, Strategy } from 'passport-jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { UserRepository } from './../../entities/repositories/user.repository';
+import { ConfigService } from '@nestjs/config';
+import { JwtPayload } from './../interface/jwt-payload.interface';
+import { AuthUser } from './../interface/auth-user.interface';
+import { IsNull } from 'typeorm';
+import Dayjs from './../../util/dayjs';
+
+@Injectable()
+export class JwtStrategy extends PassportStrategy(Strategy) {
+  constructor(
+    @InjectRepository(UserRepository)
+    private userRepository: UserRepository,
+  ) {
+    const configService = new ConfigService();
+
+    super({
+      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      ignoreExpiration: false,
+      secretOrKey: configService.get<string>('JWT_SECRET_KEY'),
+    });
+  }
+
+  async validate(payload: JwtPayload): Promise<AuthUser> {
+    const entity = await this.userRepository.findOne({
+      id: payload.id,
+      username: payload.username,
+      deletedAt: IsNull(),
+    });
+
+    if (!entity) {
+      throw new UnauthorizedException();
+    }
+
+    return {
+      user: entity,
+      expires: payload.exp,
+      expiredAt: Dayjs.unix(payload.exp).tz().format(),
+    };
+  }
+}
+```
+
+/api/src/auth/auth.module.tsを以下で編集する
+
+```ts
+import { JwtStrategy } from './strategy/jwt.strategy'; // 追加
+
+@Module({
+  // ...省略
+  providers: [AuthService, JwtStrategy], // JwtStrategy追加
+})
+export class AuthModule {}
+```
+
+- アクセスしてみる
+
+```shell
+docker-compose exec api sh
+npm run start:webpack
+```
+
+ターミナルでGETアクセス
+
+```shell
+curl http://localhost:3000/users/profile -X GET
+```
+
+```json
+{
+  "success": false,
+  "timestamp": "2022-06-14T12:04:40+09:00",
+  "method": "GET",
+  "path": "/users/profile",
+  "error": {
+    "code": "HttpException",
+    "name": {
+      "statusCode": 401,
+      "message": "Unauthorized"
+    },
+    "message": "Unauthorized"
+  }
+}
+```
+
+認証エラーが確認できたから次！
+
+トークンを取得
+
+```shell
+curl http://localhost:3000/signin -X POST -d "id=testuser&password=testpassword"
+```
+
+data.access_tokenの値をヘッダーにセットして再度アクセス
+
+```shell
+curl http://localhost:3000/users/profile -X GET -H "Authorization: Bearer [data.access_token]"
+```
+
+```json
+{
+  "user": {
+    "username": "testuser",
+    "email": "test@test.example",
+    "password": "(ハッシュ化されたパスワード)",
+    "createdAt": "2022-06-07T07:46:43.000Z",
+    "updatedAt": "2022-06-07T07:46:43.000Z",
+    "deletedAt": null,
+    "id": 1,
+  },
+  "expires": 1655178289,
+  "expiredAt": "2022-06-14T12:44:49+09:00"
+}
+```
+
+認証情報とれたのでヨシ！
+
+- ヨシだけどこのままだと認証情報がRequest()で使いにくいから少しごねごねする
+
+/api/src/auth/decorator/get-auth-user.decorator.tsを以下で作成する
+
+```ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { AuthUser } from './../interface/auth-user.interface';
+
+export const GetAuthUser = createParamDecorator(
+  (_: unknown, ctx: ExecutionContext): AuthUser => {
+    const req = ctx.switchToHttp().getRequest();
+    return req.user;
+  },
+);
+```
+
+/api/src/users/users.controller.tsを以下で編集する
+
+```ts
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { GetAuthUser } from './../auth/decorator/get-auth-user.decorator'; // 追加
+import { AuthUser } from './../auth/interface/auth-user.interface'; // 追加
+
+@Controller('users')
+export class UsersController {
+  @UseGuards(AuthGuard('jwt'))
+  @Get('profile')
+  // ↓変更
+  getProfile(@GetAuthUser() authUser: AuthUser) {
+    return authUser;
+  }
+  // ↑変更
+}
+```
+
+もう1回/users/profileにアクセスしてユーザーデータがとれたらヨシ！
