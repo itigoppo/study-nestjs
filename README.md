@@ -5569,3 +5569,29 @@ export class UsersController {
 ```
 
 もう1回/users/profileにアクセスしてユーザーデータがとれたらヨシ！
+
+# step32: e2eテストの並列処理をやめる
+
+jestは並列で処理するけどe2eはDBにデータいれてやってて喧嘩して失敗するので並列でするのとめます
+
+/api/package.jsonを以下で編集する
+
+```json
+{
+  // ...省略
+  "scripts": {
+    // ...省略
+    "test:e2e": "cross-env NODE_ENV=test jest --maxWorkers=1 --config ./test/jest-e2e.json" // 変更
+  },
+  // ...省略
+}
+```
+
+認証周りのテストを諸々つくるところはtodoと同じなので割愛
+
+```shell
+docker-compose exec api sh
+npm run test:e2e
+```
+
+すべてが通ったのを確認できたらヨシ！

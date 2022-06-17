@@ -19,7 +19,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:e2e": "cross-env NODE_ENV=test jest --config ./test/jest-e2e.json",
+    "test:e2e": "cross-env NODE_ENV=test jest --maxWorkers=1 --config ./test/jest-e2e.json",
     "typeorm": "npx ts-node ./node_modules/.bin/typeorm -f ./src/config/migration",
     "migrations:run": "npm run build && npm run typeorm migration:run",
     "migrations:rollback": "npm run typeorm migration:revert",
